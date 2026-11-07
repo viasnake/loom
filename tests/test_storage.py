@@ -157,17 +157,20 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(external.read_text(), "untouched")
 
     def test_os_paths_separate_settings_and_progress(self):
+        # Use host-absolute paths even when exercising another platform branch.
+        data, config = self.root / "data", self.root / "config"
+        roaming, local = self.root / "roaming", self.root / "local"
         with patch("loom.storage.sys.platform", "linux"), patch.dict(os.environ, {
-                "XDG_DATA_HOME": "/data", "XDG_CONFIG_HOME": "/config"}):
+                "XDG_DATA_HOME": str(data), "XDG_CONFIG_HOME": str(config)}):
             paths = AppPaths.for_app("com.example.game")
-            self.assertEqual(paths.progress, Path("/data/com.example.game/saves"))
-            self.assertEqual(paths.settings, Path("/config/com.example.game/settings"))
+            self.assertEqual(paths.progress, data / "com.example.game/saves")
+            self.assertEqual(paths.settings, config / "com.example.game/settings")
             self.assertEqual(SaveStore.for_app("com.example.game").root, paths.progress)
         with patch("loom.storage.sys.platform", "win32"), patch.dict(os.environ, {
-                "APPDATA": "/roaming", "LOCALAPPDATA": "/local"}):
+                "APPDATA": str(roaming), "LOCALAPPDATA": str(local)}):
             paths = AppPaths.for_app("com.example.game")
-            self.assertEqual(paths.progress, Path("/roaming/com.example.game/saves"))
-            self.assertEqual(paths.settings, Path("/local/com.example.game/settings"))
+            self.assertEqual(paths.progress, roaming / "com.example.game/saves")
+            self.assertEqual(paths.settings, local / "com.example.game/settings")
         with patch("loom.storage.sys.platform", "linux"), patch.dict(os.environ, {
                 "XDG_DATA_HOME": "relative", "XDG_CONFIG_HOME": "relative"}):
             paths = AppPaths.for_app("game")
