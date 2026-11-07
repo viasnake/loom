@@ -1,4 +1,5 @@
 """Logical render surfaces and coordinate conversion, not OS window management."""
+
 from dataclasses import dataclass
 from math import floor, isfinite
 from typing import Any
@@ -20,19 +21,29 @@ class Viewport:
     y: float
 
     @classmethod
-    def fit(cls, source_size: tuple[int, int], target_size: tuple[int, int],
-            *, integer: bool = True) -> "Viewport":
+    def fit(
+        cls,
+        source_size: tuple[int, int],
+        target_size: tuple[int, int],
+        *,
+        integer: bool = True,
+    ) -> "Viewport":
         _size(source_size)
         _size(target_size)
         scale = min(target_size[0] / source_size[0], target_size[1] / source_size[1])
         # Integer-fit never silently crops. A too-small target must be made larger.
         if integer:
             if scale < 1:
-                raise ValueError("integer scaling requires a target at least as large as the source")
+                raise ValueError(
+                    "integer scaling requires a target at least as large as the source"
+                )
             scale = float(floor(scale))
-        return cls(source_size, target_size, scale,
-                   (target_size[0] - source_size[0] * scale) / 2,
-                   (target_size[1] - source_size[1] * scale) / 2)
+        x = (target_size[0] - source_size[0] * scale) / 2
+        y = (target_size[1] - source_size[1] * scale) / 2
+        if integer:
+            # Put an odd spare pixel at the right/bottom, never at half a pixel.
+            x, y = floor(x), floor(y)
+        return cls(source_size, target_size, scale, x, y)
 
     @property
     def width(self) -> float:
@@ -46,7 +57,9 @@ class Viewport:
         """Return None in letterbox margins; the right and bottom edges are exclusive."""
         if not (isfinite(x) and isfinite(y)):
             return None
-        if not (self.x <= x < self.x + self.width and self.y <= y < self.y + self.height):
+        if not (
+            self.x <= x < self.x + self.width and self.y <= y < self.y + self.height
+        ):
             return None
         return (x - self.x) / self.scale, (y - self.y) / self.scale
 
@@ -66,7 +79,9 @@ class DisplayConfig:
         self.viewport()
 
     def viewport(self) -> Viewport:
-        return Viewport.fit(self.world_size, self.output_size, integer=self.scale == "integer")
+        return Viewport.fit(
+            self.world_size, self.output_size, integer=self.scale == "integer"
+        )
 
 
 class PyxelDisplay:
@@ -86,7 +101,9 @@ class PyxelDisplay:
     def resize(self, config: DisplayConfig) -> None:
         """Apply between frames. Unchanged world buffers are reused."""
         viewport = config.viewport()
-        world = self.world if config.world_size == self.config.world_size else self.pyxel.Image(*config.world_size)
+        world = self.world
+        if config.world_size != self.config.world_size:
+            world = self.pyxel.Image(*config.world_size)
         if config.output_size != self.config.output_size:
             self.pyxel.resize(*config.output_size)
         self.config, self.viewport, self.world = config, viewport, world
@@ -95,7 +112,12 @@ class PyxelDisplay:
         self.pyxel.cls(clear_color)
         w, h = self.config.world_size
         viewport = self.viewport
-        # Pyxel scales about the original copy rectangle's centre, not top-left.
-        x = viewport.x + (viewport.width - w) / 2
-        y = viewport.y + (viewport.height - h) / 2
-        self.pyxel.blt(x, y, self.world, 0, 0, w, h, scale=viewport.scale)
+        # Pyxel 3 scales around the copy rectangle's centre. An odd-sized copy
+        # loses an edge pixel at even integer scales. An even copy rectangle
+        # avoids that rounding; Pyxel clips its excess to the actual Image.
+        copy_width, copy_height = w + w % 2, h + h % 2
+        x = viewport.x + copy_width * (viewport.scale - 1) / 2
+        y = viewport.y + copy_height * (viewport.scale - 1) / 2
+        self.pyxel.blt(
+            x, y, self.world, 0, 0, copy_width, copy_height, scale=viewport.scale
+        )

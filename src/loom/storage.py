@@ -2,14 +2,16 @@
 
 ``load`` never rewrites files. ``save`` preserves the previous valid file as
 ``.bak`` before atomically replacing the primary. A corrupt or newer primary
-blocks saving; call ``recover`` explicitly for corruption. No file format can
-make simultaneous writers safe: one application must own a save directory.
+blocks saving; call ``recover`` explicitly for corruption. A directory must
+have a single writer; concurrent saves are not supported.
 """
+
 from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -41,10 +43,16 @@ _WINDOWS_RESERVED = {"CON", "PRN", "AUX", "NUL"} | {
 
 
 def _name(value: str) -> str:
-    if (not isinstance(value, str) or not _NAME.fullmatch(value)
-            or value.endswith(".") or ".." in value
-            or value.split(".", 1)[0].upper() in _WINDOWS_RESERVED):
-        raise ValueError("Use a portable name containing letters, digits, '.', '_' or '-'")
+    if (
+        not isinstance(value, str)
+        or not _NAME.fullmatch(value)
+        or value.endswith(".")
+        or ".." in value
+        or value.split(".", 1)[0].upper() in _WINDOWS_RESERVED
+    ):
+        raise ValueError(
+            "Use a portable name containing letters, digits, '.', '_' or '-'"
+        )
     return value
 
 
@@ -92,6 +100,13 @@ def _bad_constant(value: str) -> None:
     raise ValueError(f"Non-finite JSON number: {value}")
 
 
+def _finite_float(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"JSON number exceeds the finite float range: {value}")
+    return number
+
+
 class SaveStore:
     """Versioned JSON object storage, without dependencies or background threads.
 
@@ -100,20 +115,33 @@ class SaveStore:
     must run outside latency-sensitive update/draw callbacks for large data.
     """
 
-    def __init__(self, root: str | Path, *, version: int = 1,
-                 migrations: Mapping[int, Migration] | None = None):
+    def __init__(
+        self,
+        root: str | Path,
+        *,
+        version: int = 1,
+        migrations: Mapping[int, Migration] | None = None,
+    ):
         if type(version) is not int or version < 1:
             raise ValueError("version must be a positive integer")
         self.root = Path(root)
         self.version = version
         self.migrations = dict(migrations or {})
-        if any(type(v) is not int or v < 1 or not callable(fn)
-               for v, fn in self.migrations.items()):
+        if any(
+            type(v) is not int or v < 1 or not callable(fn)
+            for v, fn in self.migrations.items()
+        ):
             raise ValueError("migrations map positive versions to functions")
 
     @classmethod
-    def for_app(cls, app_id: str, *, kind: Literal["progress", "settings"] = "progress",
-                version: int = 1, migrations: Mapping[int, Migration] | None = None) -> SaveStore:
+    def for_app(
+        cls,
+        app_id: str,
+        *,
+        kind: Literal["progress", "settings"] = "progress",
+        version: int = 1,
+        migrations: Mapping[int, Migration] | None = None,
+    ) -> SaveStore:
         if kind not in ("progress", "settings"):
             raise ValueError("kind must be 'progress' or 'settings'")
         paths = AppPaths.for_app(app_id)
@@ -130,20 +158,32 @@ class SaveStore:
 
     def _decode(self, raw: bytes) -> tuple[int, dict]:
         try:
-            envelope = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object,
-                                  parse_constant=_bad_constant)
+            envelope = json.loads(
+                raw.decode("utf-8"),
+                object_pairs_hook=_unique_object,
+                parse_constant=_bad_constant,
+                parse_float=_finite_float,
+            )
         except (UnicodeError, ValueError, RecursionError) as exc:
             raise CorruptSaveError("Invalid JSON save") from exc
-        if (not isinstance(envelope, dict)
-                or set(envelope) != {"format", "version", "data"}
-                or envelope["format"] != "loom.save"
-                or type(envelope["version"]) is not int
-                or envelope["version"] < 1
-                or not isinstance(envelope["data"], dict)):
+        if (
+            not isinstance(envelope, dict)
+            or envelope.get("format") != "loom.save"
+            or type(envelope.get("version")) is not int
+            or envelope["version"] < 1
+        ):
             raise CorruptSaveError("Invalid save envelope")
         version = envelope["version"]
+        # A future format may add fields or change the shape of its data. Do not
+        # mistake that for corruption and allow recovery to downgrade the file.
         if version > self.version:
-            raise FutureVersionError(f"Save version {version} exceeds supported {self.version}")
+            raise FutureVersionError(
+                f"Save version {version} exceeds supported {self.version}"
+            )
+        if set(envelope) != {"format", "version", "data"} or not isinstance(
+            envelope["data"], dict
+        ):
+            raise CorruptSaveError("Invalid save envelope")
         return version, envelope["data"]
 
     def _migrate(self, version: int, data: dict) -> dict:
@@ -156,13 +196,16 @@ class SaveStore:
                 data = migrate(data)
                 self._encode(data)  # reject unsupported types and NaN immediately
             except Exception as exc:
-                raise MigrationError(f"Migration from version {version} failed") from exc
+                raise MigrationError(
+                    f"Migration from version {version} failed"
+                ) from exc
             version += 1
         return data
 
     def _encode(self, data: dict) -> bytes:
         if not isinstance(data, dict):
             raise TypeError("save data must be a JSON object")
+
         # JSON silently coerces non-string keys; reject this lossy conversion.
         def check(value: object) -> None:
             if isinstance(value, dict):
@@ -173,15 +216,25 @@ class SaveStore:
             elif isinstance(value, (list, tuple)):
                 for item in value:
                     check(item)
+
         check(data)
-        return (json.dumps({"format": "loom.save", "version": self.version, "data": data},
-                           ensure_ascii=False, allow_nan=False, separators=(",", ":")) + "\n").encode("utf-8")
+        return (
+            json.dumps(
+                {"format": "loom.save", "version": self.version, "data": data},
+                ensure_ascii=False,
+                allow_nan=False,
+                separators=(",", ":"),
+            )
+            + "\n"
+        ).encode("utf-8")
 
     def _replace(self, path: Path, raw: bytes) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
         if path.is_symlink():
             raise SaveError(f"Refusing symbolic link: {path}")
-        fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=self.root)
+        fd, temporary = tempfile.mkstemp(
+            prefix=f".{path.name}.", suffix=".tmp", dir=self.root
+        )
         try:
             with os.fdopen(fd, "wb") as stream:
                 stream.write(raw)

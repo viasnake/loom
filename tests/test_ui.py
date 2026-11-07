@@ -8,17 +8,17 @@ class RecordingCanvas:
         self.calls = []
 
     def rect(self, *args):
-        self.calls.append(('rect', args))
+        self.calls.append(("rect", args))
 
     def text(self, *args):
-        self.calls.append(('text', args))
+        self.calls.append(("text", args))
 
 
 class UITests(unittest.TestCase):
     def setUp(self):
         self.clicked = []
-        self.a = Button('A', lambda: self.clicked.append('a'))
-        self.b = Button('B', lambda: self.clicked.append('b'))
+        self.a = Button("A", lambda: self.clicked.append("a"))
+        self.b = Button("B", lambda: self.clicked.append("b"))
         self.panel = Column([self.a, self.b], x=10, y=10, width=100)
         self.panel.layout()
 
@@ -33,10 +33,12 @@ class UITests(unittest.TestCase):
         self.assertFalse(rect.contains(None, None))
 
     def test_press_does_not_activate_release_does(self):
-        self.assertTrue(self.panel.update(self.point(self.a, pointer_pressed=True)).pointer_consumed)
+        self.assertTrue(
+            self.panel.update(self.point(self.a, pointer_pressed=True)).pointer_consumed
+        )
         self.assertEqual(self.clicked, [])
         self.panel.update(self.point(self.a, pointer_released=True))
-        self.assertEqual(self.clicked, ['a'])
+        self.assertEqual(self.clicked, ["a"])
 
     def test_release_without_owned_press_does_not_activate(self):
         self.panel.update(self.point(self.a, pointer_released=True))
@@ -70,7 +72,9 @@ class UITests(unittest.TestCase):
     def test_remove_during_press_does_not_leak_release(self):
         self.panel.update(self.point(self.a, pointer_pressed=True))
         self.panel.remove(self.a)
-        self.assertTrue(self.panel.update(UIInput(999, 999, pointer_released=True)).pointer_consumed)
+        self.assertTrue(
+            self.panel.update(UIInput(999, 999, pointer_released=True)).pointer_consumed
+        )
         self.assertEqual(self.clicked, [])
 
     def test_tab_navigation_skips_disabled_and_wraps(self):
@@ -80,7 +84,7 @@ class UITests(unittest.TestCase):
         self.panel.update(UIInput(next_focus=True))
         self.assertIs(self.panel.focused, self.a)
         self.panel.update(UIInput(confirm=True))
-        self.assertEqual(self.clicked, ['a'])
+        self.assertEqual(self.clicked, ["a"])
         self.b.enabled = True
         self.panel.update(UIInput(previous_focus=True))
         self.assertIs(self.panel.focused, self.b)
@@ -99,7 +103,14 @@ class UITests(unittest.TestCase):
     def test_click_and_confirm_same_frame_activates_once(self):
         self.panel.update(self.point(self.a, pointer_pressed=True))
         self.panel.update(self.point(self.a, pointer_released=True, confirm=True))
-        self.assertEqual(self.clicked, ['a'])
+        self.assertEqual(self.clicked, ["a"])
+
+    def test_confirm_during_pointer_press_cannot_activate_again_on_release(self):
+        self.panel.update(self.point(self.a, pointer_pressed=True, confirm=True))
+        self.assertEqual(self.clicked, ["a"])
+        result = self.panel.update(self.point(self.a, pointer_released=True))
+        self.assertTrue(result.pointer_consumed)
+        self.assertEqual(self.clicked, ["a"])
 
     def test_modal_cancel_consumes_closing_frame(self):
         closed = []
@@ -112,8 +123,27 @@ class UITests(unittest.TestCase):
 
     def test_cancel_prevents_confirm_and_click(self):
         self.panel.update(self.point(self.a, pointer_pressed=True))
-        self.panel.update(self.point(self.a, pointer_released=True, cancel=True, confirm=True))
+        self.panel.update(
+            self.point(self.a, pointer_released=True, cancel=True, confirm=True)
+        )
         self.assertEqual(self.clicked, [])
+
+    def test_cancel_during_drag_does_not_leak_later_release(self):
+        self.panel.update(self.point(self.a, pointer_pressed=True))
+        self.panel.update(UIInput(cancel=True))
+        result = self.panel.update(UIInput(999, 999, pointer_released=True))
+        self.assertTrue(result.pointer_consumed)
+        self.assertEqual(self.clicked, [])
+        self.assertFalse(self.panel.update(UIInput(999, 999)).pointer_consumed)
+
+    def test_callback_cannot_change_modal_consumption_of_current_frame(self):
+        self.panel.modal = True
+        self.a.on_click = lambda: setattr(self.panel, "modal", False)
+        self.panel.update(self.point(self.a, pointer_pressed=True))
+        result = self.panel.update(self.point(self.a, pointer_released=True))
+        self.assertTrue(result.keyboard_consumed)
+        self.assertTrue(result.pointer_consumed)
+        self.assertFalse(self.panel.update(UIInput(999, 999)).consumed)
 
     def test_layout_is_cached_and_invalidation_is_explicit(self):
         count = self.panel.layout_count
@@ -147,12 +177,24 @@ class UITests(unittest.TestCase):
         self.panel.remove(self.a)
         self.assertEqual(Column([self.a]).children, (self.a,))
 
+    def test_failed_constructor_does_not_take_partial_ownership(self):
+        fresh = Label("Fresh")
+        with self.assertRaises(ValueError):
+            Column([fresh, self.a])
+        self.assertEqual(Column([fresh]).children, (fresh,))
+
+    def test_duplicate_child_rejected_without_taking_ownership(self):
+        fresh = Label("Fresh")
+        with self.assertRaises(ValueError):
+            Column([fresh, fresh])
+        self.assertEqual(Column([fresh]).children, (fresh,))
+
     def test_label_and_panel_use_theme(self):
         canvas = RecordingCanvas()
-        panel = Column([Label('Title')], theme=Theme(panel=2, text=3))
+        panel = Column([Label("Title")], theme=Theme(panel=2, text=3))
         panel.draw(canvas)
         self.assertEqual(canvas.calls[0][-1][-1], 2)
-        self.assertEqual(canvas.calls[1], ('text', (4, 4, 'Title', 3)))
+        self.assertEqual(canvas.calls[1], ("text", (4, 4, "Title", 3)))
 
     def test_invalid_geometry(self):
         with self.assertRaises(ValueError):
@@ -163,5 +205,5 @@ class UITests(unittest.TestCase):
             self.panel.configure(gap=-1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

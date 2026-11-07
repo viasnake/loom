@@ -10,29 +10,79 @@ class DisplayTests(unittest.TestCase):
         self.assertEqual(v.to_local(20, 30), (0, 0))
         self.assertIsNone(v.to_local(19, 30))
         self.assertIsNone(v.to_local(980, 30))
-        self.assertIsNone(v.to_local(float('nan'), 30))
+        self.assertIsNone(v.to_local(float("nan"), 30))
         self.assertEqual(v.to_local(*v.to_output(15, 22)), (15, 22))
 
     def test_fit_downscale_and_validation(self):
-        self.assertEqual(Viewport.fit((640, 360), (320, 180), integer=False).scale, .5)
-        for kwargs in [dict(world_size=(0, 10)), dict(output_size=(10, 10)), dict(scale='stretch')]:
+        self.assertEqual(Viewport.fit((640, 360), (320, 180), integer=False).scale, 0.5)
+        for kwargs in [
+            dict(world_size=(0, 10)),
+            dict(output_size=(10, 10)),
+            dict(scale="stretch"),
+        ]:
             with self.assertRaises(ValueError):
                 DisplayConfig(**kwargs)
 
     def test_composite_centered_scale_and_reuse(self):
         calls = []
-        engine = SimpleNamespace(Image=lambda w,h: object(),
-                                 resize=lambda *args: calls.append(('resize', args)),
-                                 cls=lambda color: calls.append(('cls', color)),
-                                 blt=lambda *args, **kwargs: calls.append(('blt', args, kwargs)))
+        engine = SimpleNamespace(
+            Image=lambda w, h: object(),
+            resize=lambda *args: calls.append(("resize", args)),
+            cls=lambda color: calls.append(("cls", color)),
+            blt=lambda *args, **kwargs: calls.append(("blt", args, kwargs)),
+        )
         display = PyxelDisplay(engine)
         world = display.world
         display.composite()
         _, args, kwargs = calls[-1]
         self.assertEqual(args[:2], (320, 180))
-        self.assertEqual(kwargs, {'scale': 3})
+        self.assertEqual(kwargs, {"scale": 3})
         display.resize(DisplayConfig(output_size=(1280, 720)))
         self.assertIs(display.world, world)
-        self.assertEqual(calls[-1], ('resize', (1280,720)))
-        display.resize(DisplayConfig(output_size=(1280,720), world_size=(640,360)))
+        self.assertEqual(calls[-1], ("resize", (1280, 720)))
+        display.resize(DisplayConfig(output_size=(1280, 720), world_size=(640, 360)))
         self.assertIsNot(display.world, world)
+
+    def test_odd_letterbox_pixels_have_integer_origins(self):
+        viewport = Viewport.fit((4, 2), (21, 21))
+        self.assertEqual((viewport.x, viewport.y), (0, 5))
+        self.assertEqual(viewport.to_local(0, 5), (0, 0))
+        self.assertIsNone(viewport.to_local(20, 5))
+
+    def test_odd_image_uses_even_copy_rectangle(self):
+        calls = []
+        engine = SimpleNamespace(
+            Image=lambda w, h: object(),
+            cls=lambda color: None,
+            blt=lambda *args, **kwargs: calls.append((args, kwargs)),
+        )
+        display = PyxelDisplay(engine, DisplayConfig((6, 6), (3, 3)))
+        display.composite()
+        args, kwargs = calls[-1]
+        self.assertEqual(args[:2], (2, 2))
+        self.assertEqual(args[5:7], (4, 4))
+        self.assertEqual(kwargs["scale"], 2)
+
+
+class NativeDisplayTests(unittest.TestCase):
+    def test_integer_composite_matches_viewport_pixels(self):
+        try:
+            import pyxel
+        except ImportError:
+            self.skipTest("optional native Pyxel test")
+        pyxel.init(48, 48, headless=True, capture_sec=0)
+        for size in (1, 2, 3, 4, 5):
+            for scale in (1, 2, 3, 4):
+                with self.subTest(size=size, scale=scale):
+                    output = size * scale + 1
+                    display = PyxelDisplay(
+                        pyxel, DisplayConfig((output, output), (size, size))
+                    )
+                    pyxel.resize(output, output)
+                    display.world.cls(2)
+                    display.composite()
+                    viewport = display.viewport
+                    for y in range(output):
+                        for x in range(output):
+                            expected = 2 if viewport.to_local(x, y) is not None else 0
+                            self.assertEqual(pyxel.pget(x, y), expected)

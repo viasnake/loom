@@ -3,6 +3,7 @@
 Fonts are supplied by the game (e.g. pyxel.Font(path, size)); no fonts, licenses,
 IME or language-specific line-breaking rules are implicitly bundled.
 """
+
 from collections import OrderedDict
 from typing import Any
 
@@ -44,23 +45,35 @@ class FontCatalog:
         return value
 
     def measure(self, text: str, font: str = "default") -> tuple[int, int]:
+        """Return width and line-box height; an empty string is one empty line.
+
+        The built-in font uses a 4-pixel advance and a 6-pixel line box.
+        Register a font with suitable glyph coverage for non-ASCII text.
+        """
         face, height = self._fonts[font]
+
         def measure_lines() -> tuple[int, int]:
             lines = text.split("\n")
-            widths = [face.text_width(line) if face is not None else len(line) * 4 for line in lines]
+            widths = [
+                face.text_width(line) if face is not None else len(line) * 4
+                for line in lines
+            ]
             return max(widths, default=0), len(lines) * height
+
         return self._cached(("measure", font, text), measure_lines)
 
     def wrap(self, text: str, width: int, font: str = "default") -> tuple[str, ...]:
         """Greedy wrapping at whitespace, splitting long words at code points.
 
-        Explicit newlines and blank lines are retained. Not Japanese kinsoku or
+        Explicit newlines and blank lines are retained; other whitespace is
+        collapsed to single spaces. Not Japanese kinsoku or
         grapheme-aware layout; choose a suitable font and perform richer shaping
         in the game when needed. A glyph wider than width occupies its own line.
         """
         if type(width) is not int or width <= 0:
             raise ValueError("width must be a positive integer")
         self._fonts[font]  # validate even for an empty string
+
         def wrap_lines() -> tuple[str, ...]:
             result: list[str] = []
             for paragraph in text.split("\n"):
@@ -80,10 +93,18 @@ class FontCatalog:
                         line += char
                 result.append(line)
             return tuple(result)
+
         return self._cached(("wrap", font, text, width), wrap_lines)
 
-    def draw(self, target: Any, x: float, y: float, text: str, color: int,
-             font: str = "default") -> None:
+    def draw(
+        self,
+        target: Any,
+        x: float,
+        y: float,
+        text: str,
+        color: int,
+        font: str = "default",
+    ) -> None:
         face, line_height = self._fonts[font]
         for line in text.split("\n"):
             target.text(x, y, line, color, font=face)

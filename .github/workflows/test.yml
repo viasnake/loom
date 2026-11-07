@@ -19,3 +19,14 @@ jobs:
       - run: python -m unittest discover -s tests -v
       - run: python tools/smoke.py
       - run: python tools/runtime_smoke.py
+
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e '.[dev,docs]'
+      - run: python -m black --check src tests examples tools docs/conf.py
+      - run: python -m sphinx -W --keep-going -b html docs build/docs

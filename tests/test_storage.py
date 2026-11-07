@@ -5,8 +5,14 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from loom.storage import (AppPaths, CorruptSaveError, FutureVersionError,
-                          MigrationError, SaveError, SaveStore)
+from loom.storage import (
+    AppPaths,
+    CorruptSaveError,
+    FutureVersionError,
+    MigrationError,
+    SaveError,
+    SaveStore,
+)
 
 
 class StorageTests(unittest.TestCase):
@@ -32,10 +38,14 @@ class StorageTests(unittest.TestCase):
     def test_migration_is_in_memory_and_save_retains_original(self):
         self.store.save({"points": 7})
         original = self.store.path().read_bytes()
-        new = SaveStore(self.root, version=3, migrations={
-            1: lambda old: {"score": old["points"]},
-            2: lambda old: {**old, "level": 1},
-        })
+        new = SaveStore(
+            self.root,
+            version=3,
+            migrations={
+                1: lambda old: {"score": old["points"]},
+                2: lambda old: {**old, "level": 1},
+            },
+        )
         self.assertEqual(new.load(), {"score": 7, "level": 1})
         self.assertEqual(self.store.path().read_bytes(), original)
         new.save(new.load())
@@ -48,7 +58,11 @@ class StorageTests(unittest.TestCase):
     def test_missing_and_failed_migration_never_overwrite(self):
         self.store.save({"score": 1})
         original = self.store.path().read_bytes()
-        for migrations in ({}, {1: lambda _: None}, {1: lambda _: {"value": float("nan")}}):
+        for migrations in (
+            {},
+            {1: lambda _: None},
+            {1: lambda _: {"value": float("nan")}},
+        ):
             store = SaveStore(self.root, version=2, migrations=migrations)
             with self.assertRaises(MigrationError):
                 store.load()
@@ -84,6 +98,27 @@ class StorageTests(unittest.TestCase):
             self.store.recover()
         self.assertEqual(future.path().read_bytes(), original)
 
+    def test_future_envelope_changes_are_not_treated_as_corruption(self):
+        self.store.save({"score": 1})
+        self.store.save({"score": 2})
+        future = {
+            "format": "loom.save",
+            "version": 2,
+            "data": ["a future layout"],
+            "new_field": True,
+        }
+        raw = json.dumps(future).encode("utf-8")
+        self.store.path().write_bytes(raw)
+        for operation in (
+            self.store.load,
+            self.store.recover,
+            lambda: self.store.save({"score": 3}),
+        ):
+            with self.assertRaises(FutureVersionError):
+                operation()
+            self.assertEqual(self.store.path().read_bytes(), raw)
+        self.assertFalse((self.root / "main.json.rejected").exists())
+
     def test_invalid_backup_does_not_touch_corrupt_primary(self):
         self.store.path().write_bytes(b"primary")
         (self.root / "main.json.bak").write_bytes(b"backup")
@@ -95,10 +130,12 @@ class StorageTests(unittest.TestCase):
         self.store.save({"score": 1})
         original = self.store.path().read_bytes()
         replace = os.replace
+
         def fail_primary(source, target):
             if Path(target) == self.store.path():
                 raise OSError("simulated disk error")
             replace(source, target)
+
         with patch("loom.storage.os.replace", side_effect=fail_primary):
             with self.assertRaises(OSError):
                 self.store.save({"score": 2})
@@ -124,16 +161,32 @@ class StorageTests(unittest.TestCase):
             self.assertFalse((self.root / "main.json.bak").exists())
 
     def test_invalid_envelopes(self):
-        for raw in (b"[]", b'{}', b'\xff',
-                    b'{"format":"loom.save","version":true,"data":{}}',
-                    b'{"format":"loom.save","version":1,"data":{"x":NaN}}',
-                    b'{"format":"loom.save","version":1,"data":{"x":1,"x":2}}'):
+        for raw in (
+            b"[]",
+            b"{}",
+            b"\xff",
+            b'{"format":"loom.save","version":true,"data":{}}',
+            b'{"format":"loom.save","version":1,"data":{"x":NaN}}',
+            b'{"format":"loom.save","version":1,"data":{"x":1e9999}}',
+            b'{"format":"loom.save","version":1,"data":{"x":1,"x":2}}',
+        ):
             self.store.path().write_bytes(raw)
             with self.assertRaises(CorruptSaveError):
                 self.store.load()
 
     def test_invalid_names_and_versions(self):
-        for name in ("", "../x", "/tmp/x", "a/b", "a\\b", "foo.", "CON", "nul.json", "COM1", "a\x00b"):
+        for name in (
+            "",
+            "../x",
+            "/tmp/x",
+            "a/b",
+            "a\\b",
+            "foo.",
+            "CON",
+            "nul.json",
+            "COM1",
+            "a\x00b",
+        ):
             with self.assertRaises(ValueError):
                 self.store.path(name)
         for version in (0, -1, True, "1"):
@@ -160,19 +213,31 @@ class StorageTests(unittest.TestCase):
         # Use host-absolute paths even when exercising another platform branch.
         data, config = self.root / "data", self.root / "config"
         roaming, local = self.root / "roaming", self.root / "local"
-        with patch("loom.storage.sys.platform", "linux"), patch.dict(os.environ, {
-                "XDG_DATA_HOME": str(data), "XDG_CONFIG_HOME": str(config)}):
+        with (
+            patch("loom.storage.sys.platform", "linux"),
+            patch.dict(
+                os.environ, {"XDG_DATA_HOME": str(data), "XDG_CONFIG_HOME": str(config)}
+            ),
+        ):
             paths = AppPaths.for_app("com.example.game")
             self.assertEqual(paths.progress, data / "com.example.game/saves")
             self.assertEqual(paths.settings, config / "com.example.game/settings")
             self.assertEqual(SaveStore.for_app("com.example.game").root, paths.progress)
-        with patch("loom.storage.sys.platform", "win32"), patch.dict(os.environ, {
-                "APPDATA": str(roaming), "LOCALAPPDATA": str(local)}):
+        with (
+            patch("loom.storage.sys.platform", "win32"),
+            patch.dict(
+                os.environ, {"APPDATA": str(roaming), "LOCALAPPDATA": str(local)}
+            ),
+        ):
             paths = AppPaths.for_app("com.example.game")
             self.assertEqual(paths.progress, roaming / "com.example.game/saves")
             self.assertEqual(paths.settings, local / "com.example.game/settings")
-        with patch("loom.storage.sys.platform", "linux"), patch.dict(os.environ, {
-                "XDG_DATA_HOME": "relative", "XDG_CONFIG_HOME": "relative"}):
+        with (
+            patch("loom.storage.sys.platform", "linux"),
+            patch.dict(
+                os.environ, {"XDG_DATA_HOME": "relative", "XDG_CONFIG_HOME": "relative"}
+            ),
+        ):
             paths = AppPaths.for_app("game")
             self.assertTrue(paths.progress.is_absolute())
             self.assertTrue(paths.settings.is_absolute())
