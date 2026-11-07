@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "loom-pyxel"
+version = "0.1.0a1"
+description = "A small, code-first game framework for Pyxel"
+requires-python = ">=3.11"
+dependencies = ["pyxel==3.0.0"]
+
+[project.optional-dependencies]
+dev = ["black==25.1.0"]
+docs = ["sphinx>=8,<9", "shibuya>=2024.12"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
