@@ -71,7 +71,18 @@ class GameApp:
         self.scenes = SceneStack(self.initial_scene, self.request_quit)
         try:
             pyxel.run(self._update, self._draw)
-        finally:
+        except BaseException as run_error:
+            try:
+                self.scenes.close()
+            except BaseException as cleanup_error:
+                # Keep the gameplay failure visible alongside cleanup failures.
+                # BaseExceptionGroup also preserves interrupts/SystemExit.
+                raise BaseExceptionGroup(
+                    "Application execution and cleanup failed",
+                    [run_error, cleanup_error],
+                ) from None
+            raise
+        else:
             self.scenes.close()
 
     def _update(self) -> None:

@@ -92,10 +92,13 @@ Testing and packaging
 .. code-block:: console
 
    python -m unittest discover -s tests -v
-   python tools/smoke.py
-   python tools/runtime_smoke.py
    python tools/benchmark.py
    python tools/package_showcase.py
+
+The tests assert lifecycle, input, persistence and display contracts. Native
+regressions check pixel output and runtime resize/cleanup, not merely whether
+the application starts. The benchmark is a measurement tool, not a pass/fail
+test.
 
 The packaging script builds ``dist/loom-showcase.pyxapp``. It still needs
 Python and Pyxel. To create a runtime-containing distribution, use Pyxel's

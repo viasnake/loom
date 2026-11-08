@@ -50,6 +50,49 @@ class RuntimeTests(unittest.TestCase):
         with patch.dict(sys.modules, {"pyxel": engine}):
             app._update()
 
+    def test_latest_resize_request_applies_after_update(self):
+        app, scene, engine = self.make_app()
+        observed = []
+        coordinates = []
+        engine.mouse_y = 10
+        original_world = app.display.world
+        first = DisplayConfig((24, 24), (4, 2))
+        latest = DisplayConfig((40, 20), (4, 2))
+
+        def update(frame, dt):
+            coordinates.append(frame.world_pointer)
+            observed.append(app.display.config)
+            app.request_display(first)
+            app.request_display(latest)
+            observed.append(app.display.config)
+
+        scene.update = update
+        previous = app.display.config
+        with patch.dict(sys.modules, {"pyxel": engine}):
+            app._update()
+        self.assertEqual(observed, [previous, previous])
+        self.assertEqual(app.display.config, latest)
+        self.assertIs(app.display.world, original_world)
+        self.assertIsNone(app._resize_request)
+        scene.update = lambda frame, dt: coordinates.append(frame.world_pointer)
+        with patch.dict(sys.modules, {"pyxel": engine}):
+            app._update()
+        self.assertEqual(coordinates, [(0.6, 1.0), (0.3, 1.0)])
+
+    def test_resize_failure_preserves_active_display(self):
+        app, scene, engine = self.make_app()
+        previous = app.display.config
+
+        def fail_resize(*args):
+            raise RuntimeError("backend resize failed")
+
+        engine.resize = fail_resize
+        app.request_display(DisplayConfig((40, 20), (4, 2)))
+        with patch.dict(sys.modules, {"pyxel": engine}):
+            with self.assertRaisesRegex(RuntimeError, "backend resize failed"):
+                app._update()
+        self.assertEqual(app.display.config, previous)
+
     def test_without_preserves_coordinates(self):
         frame = InputFrame(pressed=frozenset({"shoot"}), world_pointer=(1, 2))
         self.assertEqual(frame.without({"shoot"}).world_pointer, (1, 2))
@@ -74,3 +117,56 @@ class RuntimeConfigurationTests(unittest.TestCase):
         for fps in (True, 60.5, 0, 241):
             with self.assertRaises(ValueError):
                 GameApp("test", Probe(), fps=fps)
+
+
+class RuntimeFailureTests(unittest.TestCase):
+    def test_callback_and_cleanup_failures_are_both_preserved(self):
+        for failing_hook in ("update", "draw"):
+            with self.subTest(failing_hook=failing_hook):
+                calls = []
+
+                class Broken(Scene):
+                    def update(self, frame, dt):
+                        calls.append("update")
+                        if failing_hook == "update":
+                            raise ValueError("gameplay failed")
+
+                    def draw(self, display):
+                        calls.append("draw")
+                        raise ValueError("render failed")
+
+                    def exit(self):
+                        calls.append("exit")
+                        raise OSError("resource cleanup failed")
+
+                def run(update, draw):
+                    update()
+                    draw()
+                    update()
+
+                engine = SimpleNamespace(
+                    KEY_NONE=0,
+                    init=lambda *args, **kwargs: None,
+                    mouse=lambda visible: None,
+                    mouse_x=0,
+                    mouse_y=0,
+                    btn=lambda key: False,
+                    Image=lambda width, height: (width, height),
+                    run=run,
+                )
+                app = GameApp("failure test", Broken(), bindings={})
+                with patch.dict(sys.modules, {"pyxel": engine}):
+                    with self.assertRaises(ExceptionGroup) as caught:
+                        app.run(headless=True)
+                execution, cleanup = caught.exception.exceptions
+                self.assertIsInstance(execution, ValueError)
+                self.assertIsInstance(cleanup, ExceptionGroup)
+                self.assertIsInstance(cleanup.exceptions[0], OSError)
+                expected = (
+                    ["update", "exit"]
+                    if failing_hook == "update"
+                    else ["update", "draw", "exit"]
+                )
+                self.assertEqual(calls, expected)
+                app.scenes.close()
+                self.assertEqual(calls, expected)
