@@ -5,7 +5,7 @@ Application and screens
 -----------------------
 
 .. autoclass:: loom.runtime.GameApp
-   :members: run, request_quit, request_display, request_bindings
+   :members: run, request_quit, request_display, request_bindings, request_input_cancel
 
 .. autoclass:: loom.app.Scene
    :members: enter, exit, pause, resume, update, draw
@@ -23,7 +23,7 @@ Input
    :undoc-members:
 
 .. autoclass:: loom.input.ActionMap
-   :members: sample, reset, replace_bindings, bindings, to_data, physical_held, physical_pressed
+   :members: sample, reset, cancel, replace_bindings, bindings, to_data, physical_held, physical_pressed
    :undoc-members:
 
 .. autoclass:: loom.controls.BindingEditor

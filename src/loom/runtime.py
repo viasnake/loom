@@ -31,6 +31,7 @@ class GameApp:
         self.bindings = None if bindings is None else ActionMap(bindings).bindings
         self._watched_keys = ActionMap({"watched": watched_keys}).bindings["watched"]
         self._bindings_request = None
+        self._input_cancel_requested = False
         self._resize_request = None
         self._quit_requested = False
 
@@ -50,6 +51,15 @@ class GameApp:
         sample; new bindings held at application wait for release before firing.
         """
         self._bindings_request = ActionMap(bindings).bindings
+
+    def request_input_cancel(self) -> None:
+        """Interrupt named input before the next frame's physical sample.
+
+        Requests coalesce, including requests made before run. A request during
+        scene update does not change that frame's immutable InputFrame. This is
+        explicit application policy, not automatic operating-system focus loss.
+        """
+        self._input_cancel_requested = True
 
     def run(self, *, headless: bool = False) -> None:
         """Initialize Pyxel and run. Native quit may terminate the process."""
@@ -108,6 +118,9 @@ class GameApp:
     def _update(self) -> None:
         import pyxel
 
+        if self._input_cancel_requested:
+            self.actions.cancel()
+            self._input_cancel_requested = False
         pointer = (pyxel.mouse_x, pyxel.mouse_y)
         frame = self.actions.sample(
             pyxel.btn,
