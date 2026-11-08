@@ -162,3 +162,13 @@ Storage
 .. autoexception:: loom.storage.CorruptSaveError
 .. autoexception:: loom.storage.FutureVersionError
 .. autoexception:: loom.storage.MigrationError
+
+
+2D scrolling views
+------------------
+
+.. autoclass:: loom.Camera2D
+   :members: surface_size, world_size, position, origin, visible_rect, move_to, look_at, resize, world_to_view, view_to_world
+
+.. autoclass:: loom.CameraView
+   :members: apply

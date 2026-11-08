@@ -535,3 +535,35 @@ Python and Pyxel. To create a runtime-containing distribution, use Pyxel's
 
 Loom does not upload builds or integrate Steamworks. Packaging is not evidence
 of tested Windows, controller, Steam Cloud or Steam Deck support.
+
+
+2D scrolling worlds
+-------------------
+
+``Camera2D`` translates game-world coordinates into the low-resolution surface.
+``InputFrame.world_pointer`` remains surface-local; convert it explicitly after
+UI routing. Letterbox points remain ``None``.
+
+.. code-block:: python
+
+   camera = Camera2D((320, 180), world_size=(2048, 1024))
+   view = CameraView(display.world)  # One owner per drawing target.
+   camera.look_at(player.x, player.y)
+   local = result.remaining.world_pointer
+   picked = camera.view_to_world(*local) if local is not None else None
+   display.world.cls(0)
+   with view.apply(camera) as image:
+       image.rect(player.x, player.y, 8, 8, 7)
+   display.composite()
+   panel.draw(pyxel)  # Non-scrolling HUD.
+
+Drawing and picking share an integer origin. Optional zero-origin world bounds
+clamp the view or center smaller worlds. Pixel-exact ranges, rounding and
+out-of-view conversion rules are documented on ``Camera2D``. There is no zoom,
+rotation, automatic smoothing or physics. Gameplay picking must also respect
+``result.pointer_consumed``.
+
+``CameraView`` assumes zero native camera state outside its managed scopes and
+restores its own nested offsets on exit, even on exceptions. Do not mix raw ``camera()`` calls or
+other wrappers on its target, or move the camera inside a scope. After replacing
+``display.world``, resize the camera and create a wrapper for the new image.
