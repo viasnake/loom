@@ -535,3 +535,31 @@ Python and Pyxel. To create a runtime-containing distribution, use Pyxel's
 
 Loom does not upload builds or integrate Steamworks. Packaging is not evidence
 of tested Windows, controller, Steam Cloud or Steam Deck support.
+
+Standalone contract check
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``tools/check_bundle.py OUTPUT`` exercises the official ``package`` then
+``app2exe`` pipeline on the current operating system. Install a built Loom wheel
+(non-editable) and ``pyxel[app2exe]==3.0.0`` first. ``OUTPUT`` must not exist; the
+harness refuses to overwrite a previous run. It stages the installed package,
+not ``src/``, alongside a finite test fixture, not another game sample.
+
+The generated distribution is copied to a different path and its original
+bundle and staging directories are renamed out of use. The relocated executable
+runs twice from an unrelated working directory without
+``PYTHONPATH``, ``PYTHONHOME`` or the development environment on ``PATH``. It checks
+frozen-runtime and extracted-game import origins, a bundled PNG pixel and its
+composited framebuffer color, scene transition
+and shutdown hooks, and SaveStore readback across the two processes. Output
+includes ``metrics.json`` with versions, bundle bytes and elapsed build/check
+time, and separate per-run reports. These measurements have no speed threshold.
+The Windows/Linux CI jobs retain build artifacts for inspection; they do not
+publish a release or upload anything to Steam.
+
+This is a build-host frozen-runtime check, not a clean-machine certification.
+The host still provides operating-system libraries. Test the distribution on
+fresh target machines before release, including display/audio drivers, physical
+controllers, permissions and platform-specific save paths. The probe uses a
+headless window and an explicit temporary save directory; it does not verify
+Steamworks, Steam Cloud, Steam Deck, signing or installers.
