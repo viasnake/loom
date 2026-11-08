@@ -46,11 +46,18 @@ Call ``scenes.quit()`` rather than ``pyxel.quit()`` so exit hooks run first.
 UI and resources
 ----------------
 
-``Column`` holds labels, buttons, toggles and sliders and reuses its layout until
+``Column`` holds labels, buttons, toggles, sliders and progress bars and reuses its layout until
 invalidated. Use ``UIInput.from_frame(frame)`` and respect the returned
 ``UIResult`` before forwarding input to gameplay. The showcase demonstrates
 this, including a pause overlay. Call ``Column.reset_input()`` when a screen
 loses input ownership. It does not detect OS focus changes automatically.
+
+``ProgressBar(0.75, color=11)`` displays a fraction without text or input handling.
+Set ``bar.value = health / max_health`` or a cooldown fraction; finite values
+clamp to 0..1. Value changes redraw without relayout. The game owns units,
+zero-maximum handling and animation; use ``Timeline`` for an animated value.
+The bar is skipped by keyboard navigation, while its panel retains normal
+pointer ownership. No automatic timer, percentage label or background job is added.
 
 ``Palette`` assigns named colors to Pyxel's shared palette of up to 256 unique
 RGB values. Apply it before loading images or GLB assets. Both render layers

@@ -13,7 +13,17 @@ from .runtime import GameApp
 from .display import DisplayConfig, Viewport
 from .palette import Palette
 from .text import FontCatalog
-from .ui import Button, Column, Label, Slider, Toggle, Theme, Typography, UIInput
+from .ui import (
+    Button,
+    Column,
+    Label,
+    ProgressBar,
+    Slider,
+    Toggle,
+    Theme,
+    Typography,
+    UIInput,
+)
 from .storage import SaveStore
 from .canvas import PyxelCanvas
 from .camera import Camera2D, CameraView
@@ -48,6 +58,7 @@ __all__ = [
     "Button",
     "Column",
     "Label",
+    "ProgressBar",
     "Slider",
     "Toggle",
     "Theme",
