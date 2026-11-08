@@ -356,6 +356,41 @@ for capture, not gameplay: it bypasses UI routing. Keep gameplay paused or modal
 while capturing. These primitives do not scan every possible key code, infer
 key labels, support chords or display a built-in capture dialog.
 
+Resource paths
+--------------
+
+Pyxel initialization can change the working directory to the entry script's
+location. Anchor resource paths explicitly instead of relying on the launch
+working directory:
+
+.. code-block:: python
+
+   from pathlib import Path
+   from loom import AssetStore
+
+   assets = AssetStore(Path(__file__).resolve().parent / "assets")
+   image.load(0, 0, str(assets.path("sprites/player.png")))
+   # Keep the store alive while consumers need its paths; close on owner exit.
+   assets.close()
+
+For a normal directory or zip-imported Python package, use
+``AssetStore.from_package("mygame", directory="assets")``. Zip members are
+materialized once into temporary files for native loaders that require a real
+path. ``close()`` removes these extracted files; filesystem assets are never
+deleted. The store also supports ``with``. Namespace packages and custom
+resource loaders are not supported in this initial API.
+
+Names are portable relative POSIX file paths. Absolute names, empty segments,
+``.``/``..``, backslashes and colons are rejected. Directory results and symlinks
+escaping a filesystem root are rejected too. This is a convenience for trusted
+application resources, not a sandbox against concurrent filesystem changes.
+External deletion or modification of assets is not managed. There is no image,
+font, sound or decoded-resource cache, and the store does not change cwd.
+
+Include game assets explicitly in your wheel, Pyxel package or executable.
+``AssetStore`` resolves resources already shipped with the game; it does not add
+missing files to a distribution or certify a Steam build.
+
 Testing and packaging
 ---------------------
 
