@@ -164,6 +164,13 @@ Storage
 .. autoexception:: loom.storage.MigrationError
 
 
+Logical input repetition
+------------------------
+
+.. autoclass:: loom.ActionRepeat
+   :members: actions, update, reset
+
+
 2D scrolling views
 ------------------
 
