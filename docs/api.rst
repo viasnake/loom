@@ -162,3 +162,10 @@ Storage
 .. autoexception:: loom.storage.CorruptSaveError
 .. autoexception:: loom.storage.FutureVersionError
 .. autoexception:: loom.storage.MigrationError
+
+
+Logical input repetition
+------------------------
+
+.. autoclass:: loom.ActionRepeat
+   :members: actions, update, reset

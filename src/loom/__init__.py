@@ -2,6 +2,7 @@
 
 from .app import Scene, SceneStack
 from .input import ActionMap, InputFrame
+from .repeat import ActionRepeat
 from .sticks import StickBinding
 from .assets import AssetStore
 from .audio import AudioMixer, Voice
@@ -18,6 +19,7 @@ from .canvas import PyxelCanvas
 from .routing import UIRouter, UIRouteResult
 
 __all__ = [
+    "ActionRepeat",
     "Scene",
     "SceneStack",
     "ActionMap",
