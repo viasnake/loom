@@ -329,6 +329,61 @@ universal guarantee against filesystem or power-loss failures.
 Rebinding and saved controls
 ----------------------------
 
+Two-dimensional gamepad sticks
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Register analog axes separately from digital keys. Pyxel's ``btn`` does not
+accept analog axis codes; they must be read through ``btnv``:
+
+.. code-block:: python
+
+   from loom import GameApp, StickBinding
+
+   app = GameApp(
+       "Explorer", initial_scene,
+       sticks={"move": StickBinding(
+           pyxel.GAMEPAD1_AXIS_LEFTX, pyxel.GAMEPAD1_AXIS_LEFTY,
+           deadzone=0.2, invert_y=False,
+       )},
+   )
+   # In Scene.update(frame, dt), AFTER routing through any UI:
+   routed = router.update(frame).remaining
+   dx, dy = routed.sticks.get("move", (0.0, 0.0))
+
+For manual sampling, pass ``sticks=...`` to ``ActionMap`` and call
+``actions.sample(pyxel.btn, axis_value=pyxel.btnv)``. Shared analog codes are
+polled once per sample, separately from digital/watched keys. Stick names cannot
+collide with digital action names, and registered axis codes cannot occur in
+digital bindings or ``watched_keys``. Rebinding validates these constraints too.
+Stick configuration is fixed at construction; ``ActionMap.to_data()`` and
+``BindingEditor`` cover digital bindings only. Stick persistence and runtime
+stick reassignment are not part of these APIs.
+
+Pyxel 3's native SDL path supplies signed 16-bit axis values (-32768..32767).
+Loom clamps raw values, normalizes each sign separately, applies a radial
+``deadzone`` (0 inclusive to 1 exclusive), rescales the remaining travel and
+limits diagonal magnitude to one. ``invert_x``/``invert_y`` reverse components.
+A neutral stick is ``(0.0, 0.0)``. ``InputFrame.sticks`` is an independent readonly
+snapshot; ``without(names)`` removes corresponding stick names too.
+
+Stick movement does not create digital ``held``, ``pressed`` or ``released``
+actions. On interruption, a previously nonneutral stick's name appears once in
+``cancelled`` only. ``ActionMap.cancel()`` and changed digital bindings suppress
+sticks until **both** components return inside the radial deadzone. ``reset()``
+alone retains values and never bypasses existing suppression. Modal panels and
+``UIRouter.update(..., reset=True)`` similarly output zero vectors and keep them
+blocked after closing until neutral. Normal nonmodal hover does not stop movement;
+explicit pointer/navigation aliases can opt a named stick into consumption.
+Always use the router's remaining frame for gameplay, not an independently polled
+axis or an earlier frame that bypasses the modal.
+
+The range contract comes from the `Pyxel 3 SDL event adapter
+<https://github.com/kitao/pyxel/blob/v3.0.0/crates/pyxel-core/src/platform/sdl2/poll_events.rs>`_.
+Headless ``set_btnv`` can supply out-of-range integers, hence the clamp. Synthetic
+axis and native adapter tests do not verify a physical controller or Steam Deck.
+Device connection/disconnection detection, OS focus detection, trigger axes,
+analog UI navigation and runtime stick rebinding are not provided here.
+
 Explicit input interruption
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -338,8 +393,8 @@ unchanged; requests made before ``run()`` suppress keys held at startup. Repeate
 requests before the next sample coalesce. For a manually driven input map, call
 ``actions.cancel()`` before its next ``sample()``.
 
-Previously held logical actions are reported once in both ``released`` and
-``cancelled``. Stop their gameplay effects, but do not commit release-triggered
+Previously held digital actions are reported once in both ``released`` and
+``cancelled``; interrupted nonneutral sticks appear in ``cancelled`` only. Stop their gameplay effects, but do not commit release-triggered
 attacks or clicks when the action is also cancelled. Keys down at the interruption
 sample stay suppressed until released and pressed again. ``UIRouter`` and
 ``UIInput.from_frame`` already handle cancellation without committing Button or

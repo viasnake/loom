@@ -22,8 +22,11 @@ Input
    :members: without
    :undoc-members:
 
+.. autoclass:: loom.sticks.StickBinding
+   :members: normalize
+
 .. autoclass:: loom.input.ActionMap
-   :members: sample, reset, cancel, replace_bindings, bindings, to_data, physical_held, physical_pressed
+   :members: sample, reset, cancel, replace_bindings, bindings, to_data, physical_held, physical_pressed, sticks
    :undoc-members:
 
 .. autoclass:: loom.controls.BindingEditor

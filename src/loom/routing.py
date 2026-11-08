@@ -63,6 +63,8 @@ class UIRouter:
         self._pointer_owned = False
         self._blocked: set[str] = set()
         self._game_held: set[str] = set()
+        self._game_sticks: set[str] = set()
+        self._blocked_sticks: set[str] = set()
         for panel in panels:
             self.add(panel)
 
@@ -158,14 +160,20 @@ class UIRouter:
         if ui.pointer_released:
             self._pointer_owned = False
             self._pointer_owner = None
+        nonneutral_sticks = {
+            name for name, value in frame.sticks.items() if value != (0, 0)
+        }
+        self._blocked_sticks.intersection_update(nonneutral_sticks)
         interrupted = reset or modal is not None or self._modal() is not None
         if interrupted:
             pointer_consumed = keyboard_consumed = True
-            cancelled = frozenset(self._game_held)
+            cancelled = frozenset(self._game_held | self._game_sticks)
+            self._blocked_sticks.update(nonneutral_sticks)
             self._blocked.update(frame.held | frame.pressed)
             remaining = InputFrame(
-                released=cancelled,
+                released=frozenset(self._game_held),
                 cancelled=cancelled,
+                sticks={name: (0.0, 0.0) for name in frame.sticks},
                 pointer=frame.pointer,
                 world_pointer=frame.world_pointer,
             )
@@ -176,7 +184,8 @@ class UIRouter:
             if keyboard_consumed:
                 candidates.update(self.navigation_actions)
             # Hover never steals a gesture that gameplay already received.
-            candidates.difference_update(self._game_held)
+            candidates.difference_update(self._game_held | self._game_sticks)
+            self._blocked_sticks.update(candidates & nonneutral_sticks)
             self._blocked.update(candidates & (frame.pressed | frame.held))
             remaining = InputFrame(
                 frame.held - self._blocked,
@@ -186,6 +195,10 @@ class UIRouter:
                 frame.world_pointer,
                 0 if hit is not None else frame.wheel,
                 frame.cancelled - self._blocked,
+                {
+                    name: (0.0, 0.0) if name in self._blocked_sticks else value
+                    for name, value in frame.sticks.items()
+                },
             )
         self._blocked.difference_update(frame.released)
         # Resynchronization can report an up snapshot without a release edge.
@@ -196,6 +209,9 @@ class UIRouter:
             self._pointer_owned = False
             self._pointer_owner = None
         self._game_held = set(remaining.held)
+        self._game_sticks = {
+            name for name, value in remaining.sticks.items() if value != (0, 0)
+        }
         return UIRouteResult(remaining, pointer_consumed, keyboard_consumed)
 
     def draw(self, canvas) -> None:
