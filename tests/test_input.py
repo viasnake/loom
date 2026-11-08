@@ -181,3 +181,50 @@ class RebindingTests(unittest.TestCase):
         real_release = self.sample(mapping, [])
         self.assertEqual(real_release.released, {"primary"})
         self.assertFalse(real_release.cancelled)
+
+
+class PhysicalSnapshotTests(unittest.TestCase):
+    def test_unbound_watched_keys_are_polled_once_without_actions(self):
+        actions = ActionMap({"fire": [1]}, watched_keys=[1, 2, 2])
+        calls = []
+
+        def down(key):
+            calls.append(key)
+            return True
+
+        frame = actions.sample(down)
+        self.assertEqual(calls, [1, 2])
+        self.assertEqual(frame.pressed, {"fire"})
+        self.assertEqual(actions.physical_held, {1, 2})
+        self.assertEqual(actions.physical_pressed, {1, 2})
+        actions.sample(lambda key: key == 2)
+        self.assertEqual(actions.physical_held, {2})
+        self.assertFalse(actions.physical_pressed)
+
+    def test_rebinding_preserves_watch_and_raw_snapshot_while_actions_suppressed(self):
+        actions = ActionMap({"fire": [1]}, watched_keys=[2])
+        actions.sample(lambda key: key == 2)
+        snapshot = actions.physical_held
+        actions.replace_bindings({"fire": [2]})
+        frame = actions.sample(lambda key: key == 2)
+        self.assertFalse(frame.held)
+        self.assertEqual(actions.physical_held, {2})
+        self.assertFalse(actions.physical_pressed)
+        actions.sample(lambda key: False)
+        self.assertEqual(snapshot, {2})
+
+    def test_reset_suppresses_raw_edges_without_hiding_down_state(self):
+        actions = ActionMap({}, watched_keys=[1])
+        actions.reset()
+        actions.sample(lambda key: True)
+        self.assertEqual(actions.physical_held, {1})
+        self.assertFalse(actions.physical_pressed)
+
+    def test_invalid_watch_codes_rejected_and_caller_copied(self):
+        with self.assertRaises(ValueError):
+            ActionMap({}, watched_keys=[True])
+        source = [1]
+        actions = ActionMap({}, watched_keys=source)
+        source.append(2)
+        actions.sample(lambda key: True)
+        self.assertEqual(actions.physical_held, {1})

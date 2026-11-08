@@ -43,7 +43,12 @@ class ActionMap:
     read during replacement; sample remains the single input polling boundary.
     """
 
-    def __init__(self, bindings: Mapping[str, Iterable[int]]):
+    def __init__(
+        self, bindings: Mapping[str, Iterable[int]], *, watched_keys: Iterable[int] = ()
+    ):
+        self._watched_keys = self._normalize({"watched": watched_keys})["watched"]
+        self._physical_held: frozenset[int] = frozenset()
+        self._physical_pressed: frozenset[int] = frozenset()
         normalized = self._normalize(bindings)
         self._install(normalized)
         self._held: frozenset[str] = frozenset()
@@ -80,13 +85,29 @@ class ActionMap:
     def _install(self, normalized: dict[str, tuple[int, ...]]) -> None:
         self._bindings = MappingProxyType(normalized)
         self._keys = tuple(
-            dict.fromkeys(key for codes in normalized.values() for key in codes)
+            dict.fromkeys(
+                [key for codes in normalized.values() for key in codes]
+                + list(self._watched_keys)
+            )
         )
 
     @property
     def bindings(self) -> Mapping[str, tuple[int, ...]]:
         """Immutable snapshot; old snapshots remain unchanged after replacement."""
         return self._bindings
+
+    @property
+    def physical_held(self) -> frozenset[int]:
+        """Last raw snapshot of bound and watched keys, before action filtering.
+
+        For settings capture, not routed gameplay. Read only after sample().
+        """
+        return self._physical_held
+
+    @property
+    def physical_pressed(self) -> frozenset[int]:
+        """Raw edges from the last sample; reset suppresses these edges too."""
+        return self._physical_pressed
 
     def to_data(self) -> dict[str, list[int]]:
         """Independent JSON-safe bindings; pass them to ActionMap to validate/load."""
@@ -112,6 +133,11 @@ class ActionMap:
     ) -> InputFrame:
         # Read each physical key once even when several actions share it.
         keys = {key: bool(is_down(key)) for key in self._keys}
+        physical = frozenset(key for key, down in keys.items() if down)
+        self._physical_pressed = (
+            frozenset() if self._resync else physical - self._physical_held
+        )
+        self._physical_held = physical
         if self._rebind_pending:
             self._blocked_keys = {key for key, down in keys.items() if down}
             self._rebind_pending = False

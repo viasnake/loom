@@ -2,6 +2,7 @@
 
 from .app import Scene, SceneStack
 from .input import ActionMap, InputFrame
+from .controls import BindingEditor, CaptureResult, KeyCapture
 
 from .runtime import GameApp
 from .display import DisplayConfig, Viewport
@@ -17,6 +18,9 @@ __all__ = [
     "SceneStack",
     "ActionMap",
     "InputFrame",
+    "BindingEditor",
+    "CaptureResult",
+    "KeyCapture",
     "GameApp",
     "DisplayConfig",
     "Viewport",

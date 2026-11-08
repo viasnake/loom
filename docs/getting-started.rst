@@ -246,8 +246,35 @@ For initial startup, catch ``FileNotFoundError`` and retain the defaults.
 key-code lists. Validate the application's settings envelope before indexing it;
 invalid bindings raise without changing the current or pending map. Saving is
 explicit, not a side effect of each key change. A game should retain a recovery
-route if the player removes all menu controls. This API does not provide a
-key-capture dialog, conflict policy or cross-backend key translation.
+route if the player removes all menu controls. There is no cross-backend key translation.
+
+Editing controls
+----------------
+
+``BindingEditor`` keeps a draft separate from live controls. Defaults define the
+known action names; supplied current bindings must contain those same names.
+``conflicts(action, keys)`` previews other actions sharing the proposed keys.
+``assign()`` rejects conflicts by default. Choose ``conflict="share"`` to retain
+shared keys or ``conflict="reassign"`` to remove those keys from other actions.
+``clear(action)`` leaves an unbound action; ``restore_defaults()`` discards the
+draft edits. Apply with ``app.request_bindings(editor.bindings)`` and save only
+when the user confirms. Reassigning can leave another action unbound: the game
+owns required menu controls and recovery policy.
+
+``KeyCapture`` tracks a capture session, not a window or polling loop. Call
+``begin(action, app.actions.physical_held)`` when opening the prompt, then feed
+``update(app.actions.physical_held)`` once per scene update. Opening keys are
+ignored until released. Simultaneous new keys produce ``ambiguous`` instead of
+an arbitrary choice; release and retry. ``cancel()`` ends capture explicitly.
+The game decides which key means cancel and presents conflicts before applying.
+
+Pass a finite set of acceptable backend key codes as ``GameApp(watched_keys=...)``.
+``ActionMap`` polls the union of bound and watched keys once per sample, exposing
+immutable ``physical_held`` and ``physical_pressed`` snapshots. Raw state is
+available even while named actions are suppressed by rebinding. It is intended
+for capture, not gameplay: it bypasses UI routing. Keep gameplay paused or modal
+while capturing. These primitives do not scan every possible key code, infer
+key labels, support chords or display a built-in capture dialog.
 
 Testing and packaging
 ---------------------
