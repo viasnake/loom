@@ -235,6 +235,45 @@ keep animation values within a practical numeric range.
 This is numeric interpolation, not an alpha compositor, property-binding system,
 async scheduler or animation editor. Games decide how values affect drawing.
 
+Audio channels
+--------------
+
+.. code-block:: python
+
+   from loom import AudioMixer
+
+   # Construct after pyxel.init, while these channels are idle.
+   audio = AudioMixer(channels=pyxel.channels,
+                      buses={"music": (0,), "effects": (1, 2)})
+   audio.master_volume = 0.8
+   audio.set_bus_volume("effects", 0.5)
+   voice = audio.play("effects", sound_id)
+   # voice is None when all channels in that bus are occupied.
+   audio.close()  # e.g. in the owning scene/application cleanup
+
+A bus reserves a disjoint set of channels. Playback uses an idle channel and
+never steals an existing voice. The mixer owns those channels exclusively;
+do not use direct channel playback or another mixer on them while it is open.
+Other channels are untouched. Sound/music assets remain game-owned; the mixer
+does not rewrite their volume data or call Pyxel's global stop.
+
+Gain is the original channel gain multiplied by master and bus volumes (0..1).
+This preserves Pyxel's default headroom rather than replacing its base gain
+with 1. Muting sets gain to zero without stopping playback. ``Voice.active``
+checks current playback, and a stale ``Voice.stop()`` cannot stop a newer voice
+that reused its channel. ``stop(bus)`` stops one group; ``stop()`` stops all owned
+channels. ``close()`` stops owned playback and restores its original gains,
+attempting every channel even when a backend operation fails. Cleanup failures
+are grouped and reported; the mixer remains closed and a second ``close()`` does
+not retry them. Recover failed backend operations explicitly. Gain-setting errors
+attempt rollback; if rollback also fails, handle the reported failures before
+continuing playback.
+
+Call ``close()`` explicitly at the owner's lifetime boundary. A paused scene does
+not automatically pause sound, and there is no streaming, crossfade, priority
+stealing, ducking or automatic global mixer. Native tests verify gain and channel
+state with a dummy audio driver; they do not certify audible quality or latency.
+
 Saving
 ------
 
