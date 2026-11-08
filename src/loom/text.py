@@ -8,6 +8,32 @@ from collections import OrderedDict
 from typing import Any
 
 
+def _wrap_fixed(text: str, width: int) -> tuple[str, ...]:
+    """Wrap the built-in 4-pixel font without measuring growing prefixes."""
+    capacity = width // 4
+    chunk_size = max(1, capacity)
+    result: list[str] = []
+    for paragraph in text.split("\n"):
+        pieces: list[str] = []
+        length = 0
+        for word in paragraph.split():
+            candidate_length = length + bool(pieces) + len(word)
+            if candidate_length <= capacity:
+                pieces.append(word)
+                length = candidate_length
+                continue
+            if pieces:
+                result.append(" ".join(pieces))
+            # Keep the final chunk open: the next word may fit beside it.
+            for start in range(0, len(word) - chunk_size, chunk_size):
+                result.append(word[start : start + chunk_size])
+            tail_start = ((len(word) - 1) // chunk_size) * chunk_size
+            pieces = [word[tail_start:]]
+            length = len(pieces[0])
+        result.append(" ".join(pieces))
+    return tuple(result)
+
+
 class FontCatalog:
     def __init__(self, max_entries: int = 256) -> None:
         if type(max_entries) is not int or max_entries < 0:
@@ -76,25 +102,46 @@ class FontCatalog:
         collapsed to single spaces. Not Japanese kinsoku or
         grapheme-aware layout; choose a suitable font and perform richer shaping
         in the game when needed. A glyph wider than width occupies its own line.
+
+        Only the final wrapped result enters the shared cache. Custom prefix
+        widths use a temporary cache bounded by max_entries. The built-in
+        fixed-width path does linear work. Custom fonts retain exact prefix
+        measurement semantics (no additive or monotonic width assumption), so
+        a long unbroken token can still require quadratic measurement work.
         """
         if type(width) is not int or width <= 0:
             raise ValueError("width must be a positive integer")
-        self._fonts[font]  # validate even for an empty string
+        face, _ = self._fonts[font]  # validate even for an empty string
 
         def wrap_lines() -> tuple[str, ...]:
+            if face is None:
+                return _wrap_fixed(text, width)
+            widths: OrderedDict[str, int] = OrderedDict()
+
+            def measure(candidate: str) -> int:
+                if candidate in widths:
+                    widths.move_to_end(candidate)
+                    return widths[candidate]
+                measured = face.text_width(candidate)
+                if self.max_entries:
+                    widths[candidate] = measured
+                    if len(widths) > self.max_entries:
+                        widths.popitem(last=False)
+                return measured
+
             result: list[str] = []
             for paragraph in text.split("\n"):
                 line = ""
                 for word in paragraph.split():
                     candidate = f"{line} {word}" if line else word
-                    if self.measure(candidate, font)[0] <= width:
+                    if measure(candidate) <= width:
                         line = candidate
                         continue
                     if line:
                         result.append(line)
                         line = ""
                     for char in word:
-                        if line and self.measure(line + char, font)[0] > width:
+                        if line and measure(line + char) > width:
                             result.append(line)
                             line = ""
                         line += char
