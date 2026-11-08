@@ -43,6 +43,11 @@ Display
 UI
 --
 
+.. autoclass:: loom.routing.UIRouter
+   :members:
+
+.. autoclass:: loom.routing.UIRouteResult
+
 .. autoclass:: loom.canvas.PyxelCanvas
    :members: clipped, rect, text
 

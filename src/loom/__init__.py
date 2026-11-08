@@ -10,6 +10,7 @@ from .text import FontCatalog
 from .ui import Button, Column, Label, Theme, Typography, UIInput
 from .storage import SaveStore
 from .canvas import PyxelCanvas
+from .routing import UIRouter, UIRouteResult
 
 __all__ = [
     "Scene",
@@ -29,4 +30,6 @@ __all__ = [
     "UIInput",
     "SaveStore",
     "PyxelCanvas",
+    "UIRouter",
+    "UIRouteResult",
 ]
