@@ -639,3 +639,26 @@ rotation, automatic smoothing or physics. Gameplay picking must also respect
 restores its own nested offsets on exit, even on exceptions. Do not mix raw ``camera()`` calls or
 other wrappers on its target, or move the camera inside a scope. After replacing
 ``display.world``, resize the camera and create a wrapper for the new image.
+
+Sprite frame playback
+---------------------
+
+Share immutable clips, not playback state. Frame rectangles select regions in
+a game-owned sprite sheet; Pyxel still handles drawing and source clipping.
+
+.. code-block:: python
+
+   from loom import SpriteClip, SpritePlayer
+
+   walk = SpriteClip(((0, 0, 16, 16), (16, 0, 16, 16)), fps=8)
+   player = SpritePlayer(walk)  # loop=False for an attack or one-shot effect.
+   player.update(dt)           # Omit this while the owning scene is paused.
+   image.blt(x, y, sheet, *player.frame, colkey=0)
+
+A one-shot finishes only after the final frame's display time, then retains
+that frame. ``restart()`` returns to frame zero; create another player to switch
+clips. Large time steps skip directly without emitting intermediate events.
+Frames have equal duration, positive dimensions and nonnegative source origins.
+Asset loading, sheet bounds, flipping, per-frame events and animation state
+machines remain game policy. Timeline continues to handle numeric interpolation
+and delayed callbacks, separately from this discrete frame cursor.

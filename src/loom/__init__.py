@@ -17,9 +17,12 @@ from .ui import Button, Column, Label, Slider, Toggle, Theme, Typography, UIInpu
 from .storage import SaveStore
 from .canvas import PyxelCanvas
 from .camera import Camera2D, CameraView
+from .sprites import SpriteClip, SpritePlayer
 from .routing import UIRouter, UIRouteResult
 
 __all__ = [
+    "SpriteClip",
+    "SpritePlayer",
     "Camera2D",
     "CameraView",
     "ActionRepeat",
