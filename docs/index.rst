@@ -23,5 +23,6 @@ without changing sound assets. Automatic OS focus handling and asynchronous
 saves are not implemented.
 
 Native headless tests exercise real Pyxel buffers without a physical window.
-Windows executable launch, DPI, physical controllers, long-session memory and
-Steam/Deck acceptance still require platform testing.
+CI exercises relocated frozen artifacts on Windows and Linux. Interactive
+desktop behavior, DPI, physical controllers, long-session memory and Steam/Deck
+acceptance still require platform testing.
