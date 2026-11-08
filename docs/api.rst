@@ -72,6 +72,14 @@ UI
    :members:
    :undoc-members:
 
+.. autoclass:: loom.ui.Toggle
+   :members:
+   :undoc-members:
+
+.. autoclass:: loom.ui.Slider
+   :members:
+   :undoc-members:
+
 .. autoclass:: loom.ui.Label
    :members:
    :undoc-members:

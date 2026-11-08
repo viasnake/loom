@@ -46,7 +46,7 @@ Call ``scenes.quit()`` rather than ``pyxel.quit()`` so exit hooks run first.
 UI and resources
 ----------------
 
-``Column`` holds ``Label`` and ``Button`` widgets and reuses its layout until
+``Column`` holds labels, buttons, toggles and sliders and reuses its layout until
 invalidated. Use ``UIInput.from_frame(frame)`` and respect the returned
 ``UIResult`` before forwarding input to gameplay. The showcase demonstrates
 this, including a pause overlay. Call ``Column.reset_input()`` when a screen
@@ -87,7 +87,7 @@ text vertically. Custom canvases used with typography must accept the ``font``
 keyword in ``text()``, as Pyxel and Pyxel Image do; see ``FontCanvas``.
 
 ``UIInput.from_frame()`` uses the standard action names ``primary``, ``confirm``,
-``cancel``, ``next`` and ``previous``. Change physical bindings in ``ActionMap``,
+``cancel``, ``next``, ``previous``, ``decrement`` and ``increment``. Change physical bindings in ``ActionMap``,
 not in the UI. It converts edge events, so holding a button does not repeatedly
 activate it.
 
@@ -166,6 +166,33 @@ remain observational data; coordinate-driven gameplay must respect
 separately from button capture.
 
 ``add()``, ``remove()`` and ``bring_to_front()`` manage top-level panels.
+
+Settings controls
+-----------------
+
+.. code-block:: python
+
+   from loom import Column, Slider, Toggle, UIRouter
+
+   settings = Column([
+       Toggle("Music", checked=True, on_change=set_music_enabled),
+       Slider("Volume", value=0.6, minimum=0, maximum=1, step=0.1,
+              on_change=set_volume),
+   ], width=280)
+   router = UIRouter([settings], navigation_actions={"left", "right"})
+
+A toggle changes on pointer release inside the control or confirm. A slider
+updates immediately when the control is pressed and follows the captured pointer,
+clamping outside its range. Keyboard/D-pad decrement and increment change one
+step per press; there is no implicit repeat. Default bindings use Left/Right
+and D-pad Left/Right. Register game aliases of these keys with the router as
+above so UI adjustment cannot also move the player.
+
+Callbacks receive the new value only when it changes, including programmatic
+assignment to ``checked`` or ``value``; construction does not call them. Reset,
+cancel, scrolling, hiding or disabling a control ends an ongoing drag without
+undoing changes already made. Persistence and audio effects remain game-owned;
+these widgets do not write files or change global sound settings.
 
 Saving
 ------

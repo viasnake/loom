@@ -172,7 +172,15 @@ class RoutingConfigurationTests(unittest.TestCase):
         self.assertEqual(router.pointer_actions, {"primary", "fire"})
         self.assertEqual(
             router.navigation_actions,
-            {"confirm", "cancel", "next", "previous", "charge"},
+            {
+                "confirm",
+                "cancel",
+                "next",
+                "previous",
+                "decrement",
+                "increment",
+                "charge",
+            },
         )
         panel = Column([Button("UI", lambda: None)])
         router.add(panel)
@@ -193,3 +201,51 @@ class RoutingConfigurationTests(unittest.TestCase):
                 UIRouter(pointer_actions=aliases)
         with self.assertRaises(ValueError):
             UIRouter(pointer_actions={"confirm"})
+
+
+class SettingsRoutingTests(unittest.TestCase):
+    def test_adjustment_reaches_only_active_panel_and_blocks_game_alias(self):
+        from loom.ui import Slider
+
+        back = Slider("Back", value=0.5)
+        front = Slider("Front", value=0.5)
+        router = UIRouter(
+            [Column([back]), Column([front])], navigation_actions={"right"}
+        )
+        router.update(frame(pressed=["next"]))
+        result = router.update(
+            frame(held=["increment", "right"], pressed=["increment", "right"])
+        )
+        self.assertAlmostEqual(front.value, 0.6)
+        self.assertEqual(back.value, 0.5)
+        self.assertFalse(result.remaining.pressed)
+        self.assertFalse(result.remaining.held)
+        released = router.update(frame(released=["increment", "right"]))
+        self.assertFalse(released.remaining.released)
+
+    def test_slider_drag_survives_leaving_panel_but_not_removal(self):
+        from loom.ui import Slider
+
+        changes = []
+        slider = Slider("Volume", value=0.5, on_change=changes.append)
+        panel = Column([slider], width=100)
+        router = UIRouter([panel], pointer_actions={"fire"})
+        router.update(frame(held=["primary", "fire"], pressed=["primary", "fire"]))
+        result = router.update(frame(held=["primary", "fire"], pointer=(500, 10)))
+        self.assertEqual(slider.value, slider.maximum)
+        self.assertFalse(result.remaining.held)
+        router.remove(panel)
+        count = len(changes)
+        result = router.update(frame(released=["primary", "fire"], pointer=(-100, 10)))
+        self.assertEqual(len(changes), count)
+        self.assertFalse(result.remaining.released)
+
+    def test_up_resync_stops_drag_before_new_coordinates_are_applied(self):
+        from loom.ui import Slider
+
+        slider = Slider("Volume", value=0.5)
+        router = UIRouter([Column([slider], width=100)])
+        router.update(frame(held=["primary"], pressed=["primary"], pointer=(40, 10)))
+        value = slider.value
+        router.update(frame(pointer=(500, 10)))
+        self.assertEqual(slider.value, value)

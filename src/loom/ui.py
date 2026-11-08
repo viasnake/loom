@@ -8,7 +8,7 @@ loads fonts nor changes the global palette.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import isfinite
+from math import ceil, floor, isfinite, nextafter
 from typing import Any, Callable, ContextManager, Iterable, Protocol
 
 from .geometry import Rect
@@ -88,6 +88,8 @@ class UIInput:
     cancel: bool = False
     reset: bool = False
     scroll_y: int = 0  # UI pixels; positive moves content upward.
+    decrement: bool = False
+    increment: bool = False
 
     @classmethod
     def from_frame(
@@ -112,6 +114,8 @@ class UIInput:
             cancel="cancel" in frame.pressed,
             reset=reset,
             scroll_y=round(-frame.wheel * scroll_step),
+            decrement="decrement" in frame.pressed,
+            increment="increment" in frame.pressed,
         )
 
 
@@ -233,7 +237,23 @@ class Label(_TextWidget):
         )
 
 
-class Button(_TextWidget):
+class _Control(_TextWidget):
+    """Small interaction hooks; Column owns capture and callback ordering."""
+
+    focusable = True
+    draggable = False
+
+    def activate(self) -> None:
+        pass
+
+    def adjust(self, direction: int) -> None:
+        pass
+
+    def drag(self, x: float | None) -> None:
+        pass
+
+
+class Button(_Control):
     """Text button with automatic height (minimum 20) and centered line boxes.
 
     Text has 4-pixel horizontal padding. Auto height leaves at least 4 pixels
@@ -256,6 +276,9 @@ class Button(_TextWidget):
         self.text = text
         self.on_click = on_click
 
+    def activate(self) -> None:
+        self.on_click()
+
     def draw(
         self,
         canvas: Canvas,
@@ -277,12 +300,236 @@ class Button(_TextWidget):
             canvas.rect(r.x, r.y + r.height - 1, r.width, 1, theme.focus)
             canvas.rect(r.x, r.y, 1, r.height, theme.focus)
             canvas.rect(r.x + r.width - 1, r.y, 1, r.height, theme.focus)
+        self._draw_label(canvas, theme)
+
+    def _draw_label(self, canvas: Canvas, theme: Theme) -> None:
+        r = self.rect
         canvas.text(
             r.x + 4,
             r.y + max(0, (r.height - getattr(self, "_text_height", 6)) // 2),
             self.text,
             theme.text if self.enabled else theme.disabled,
         )
+
+
+class Toggle(Button):
+    """Boolean setting; click release or confirm toggles once.
+
+    Assigning checked notifies on_change only when the value changes. Initial
+    construction is silent. Text width must leave room for the 18-pixel marker.
+    """
+
+    def __init__(
+        self,
+        text: str,
+        checked: bool = False,
+        on_change: Callable[[bool], None] | None = None,
+        *,
+        height: int | None = None,
+        enabled: bool = True,
+    ):
+        if type(checked) is not bool:
+            raise TypeError("checked must be a bool")
+        self._checked = checked
+        self.on_change = on_change
+        super().__init__(text, self._toggle, height=height, enabled=enabled)
+
+    @property
+    def checked(self) -> bool:
+        return self._checked
+
+    @checked.setter
+    def checked(self, value: bool) -> None:
+        if type(value) is not bool:
+            raise TypeError("checked must be a bool")
+        if value != self._checked:
+            self._checked = value
+            if self.on_change is not None:
+                self.on_change(value)
+
+    def _toggle(self) -> None:
+        self.checked = not self.checked
+
+    def _draw_label(self, canvas: Canvas, theme: Theme) -> None:
+        r = self.rect
+        color = theme.text if self.enabled else theme.disabled
+        y = r.y + max(0, (r.height - 10) // 2)
+        canvas.rect(r.x + 4, y, 12, 10, color)
+        canvas.rect(r.x + 5, y + 1, 10, 8, theme.panel)
+        if self.checked:
+            canvas.rect(r.x + 7, y + 3, 6, 4, theme.focus if self.enabled else color)
+        canvas.text(
+            r.x + 22,
+            r.y + max(0, (r.height - getattr(self, "_text_height", 6)) // 2),
+            self.text,
+            color,
+        )
+
+
+class Slider(_Control):
+    """Stepped numeric setting with immediate, change-only notifications.
+
+    Values snap to minimum + n * step; maximum is also a reachable endpoint.
+    Half-step ties round upward, allowing one quotient ULP for float arithmetic.
+    Press anywhere in the control (including its label) to set the value from
+    the horizontal track position. Drag captures until release and clamps
+    outside the track. Confirm alone makes no change. Cancel/reset stop
+    editing without rolling back changes. Assigning value uses the same snapping
+    and notification rules. Steps must be representable throughout the range;
+    ranges with more than 2**52 intervals are rejected. Explicit heights may
+    overflow, as with other widgets.
+    """
+
+    draggable = True
+    minimum_height = 28
+    vertical_padding = 11
+
+    def __init__(
+        self,
+        text: str,
+        value: float = 0,
+        *,
+        minimum: float = 0,
+        maximum: float = 1,
+        step: float = 0.1,
+        on_change: Callable[[float], None] | None = None,
+        height: int | None = None,
+        enabled: bool = True,
+    ):
+        for name, number in (
+            ("minimum", minimum),
+            ("maximum", maximum),
+            ("step", step),
+        ):
+            self._validate_number(name, number)
+        minimum, maximum, step = float(minimum), float(maximum), float(step)
+        if maximum <= minimum or step <= 0:
+            raise ValueError("maximum must exceed minimum and step must be positive")
+        if not isfinite(maximum - minimum) or not isfinite((maximum - minimum) / step):
+            raise ValueError("range and step ratio must be finite")
+        if (
+            minimum + step == minimum
+            or maximum - step == maximum
+            or (maximum - minimum) / step > 2**52
+        ):
+            raise ValueError("step is too small to represent throughout this range")
+        self._minimum, self._maximum, self._step = (
+            float(minimum),
+            float(maximum),
+            float(step),
+        )
+        self._value = self._normalize(value)
+        self.on_change = on_change
+        super().__init__(height=height, enabled=enabled)
+        self.text = text
+
+    @staticmethod
+    def _validate_number(name: str, value: float) -> None:
+        try:
+            valid = (
+                not isinstance(value, bool)
+                and isinstance(value, (int, float))
+                and isfinite(value)
+            )
+        except OverflowError:
+            valid = False
+        if not valid:
+            raise ValueError(f"{name} must be a finite number")
+
+    @property
+    def minimum(self) -> float:
+        return self._minimum
+
+    @property
+    def maximum(self) -> float:
+        return self._maximum
+
+    @property
+    def step(self) -> float:
+        return self._step
+
+    def _normalize(self, value: float) -> float:
+        self._validate_number("value", value)
+        value = min(self.maximum, max(self.minimum, value))
+        if value == self.maximum:
+            return self.maximum
+        ratio = (value - self.minimum) / self.step
+        index = floor(ratio)
+        # Compare in value space so subtracting an offset minimum does not
+        # amplify roundoff. One ULP covers a rounded decimal midpoint.
+        midpoint = self.minimum + (index + 0.5) * self.step
+        if value >= nextafter(midpoint, float("-inf")):
+            index += 1
+        return min(self.maximum, max(self.minimum, self.minimum + index * self.step))
+
+    @property
+    def value(self) -> float:
+        return self._value
+
+    @value.setter
+    def value(self, value: float) -> None:
+        value = self._normalize(value)
+        if value != self._value:
+            self._value = value
+            if self.on_change is not None:
+                self.on_change(value)
+
+    def adjust(self, direction: int) -> None:
+        ratio = (self.value - self.minimum) / self.step
+        if direction < 0 and self.value == self.maximum:
+            # The upper endpoint may sit between lattice points. Choose the
+            # preceding point, accounting for a rounded quotient at the endpoint.
+            index = ceil(ratio) - 1
+            if self.minimum + index * self.step >= self.maximum:
+                index -= 1
+        else:
+            # Stored interior values are already snapped; recover their index
+            # rather than flooring a quotient with subtraction roundoff.
+            index = round(ratio) + (1 if direction > 0 else -1)
+        self.value = min(
+            self.maximum, max(self.minimum, self.minimum + index * self.step)
+        )
+
+    def drag(self, x: float | None) -> None:
+        if x is None or not isfinite(x):
+            return
+        start, width = self._track()
+        fraction = min(1.0, max(0.0, (x - start) / width))
+        self.value = self.minimum + fraction * (self.maximum - self.minimum)
+
+    def _track(self) -> tuple[int, int]:
+        return self.rect.x + 5, max(1, self.rect.width - 11)
+
+    def draw(
+        self,
+        canvas: Canvas,
+        theme: Theme,
+        *,
+        focused: bool,
+        hovered: bool,
+        pressed: bool,
+    ) -> None:
+        r = self.rect
+        color = theme.text if self.enabled else theme.disabled
+        fill = theme.button
+        if self.enabled and pressed:
+            fill = theme.pressed
+        elif self.enabled and hovered:
+            fill = theme.hover
+        canvas.rect(r.x, r.y, r.width, r.height, fill)
+        if focused and self.enabled:
+            canvas.rect(r.x, r.y, r.width, 1, theme.focus)
+            canvas.rect(r.x, r.y + r.height - 1, r.width, 1, theme.focus)
+        canvas.text(r.x + 4, r.y + 4, self.text, color)
+        start, width = self._track()
+        y = r.y + getattr(self, "_text_height", 6) + 11
+        canvas.rect(start, y, width + 1, 2, theme.disabled)
+        fraction = (self.value - self.minimum) / (self.maximum - self.minimum)
+        knob = start + round(fraction * width)
+        canvas.rect(
+            start, y, knob - start, 2, theme.focus if self.enabled else theme.disabled
+        )
+        canvas.rect(knob - 2, y - 3, 5, 8, color)
 
 
 class Column:
@@ -339,7 +586,7 @@ class Column:
         self._visible: tuple[Widget, ...] = ()
         self._dirty = True
         self._rect = Rect(x, y, width, 0)
-        self._capture: Button | None = None
+        self._capture: _Control | None = None
         self._pointer_owned = False
         self._focus: Widget | None = None
         self._hover: Widget | None = None
@@ -524,26 +771,29 @@ class Column:
         self._ensure_focus_visible()
         return True
 
-    def _pointer_activation(self, frame: UIInput, consumed: bool) -> Button | None:
+    def _pointer_action(
+        self, frame: UIInput, consumed: bool
+    ) -> Callable[[], None] | None:
         if frame.pointer_pressed:
             self._pointer_owned = consumed
             self._capture = None
-            if isinstance(self._hover, Button) and self._eligible(self._hover):
+            if isinstance(self._hover, _Control) and self._eligible(self._hover):
                 self._capture = self._hover
                 self._focus = self._hover
-
-        if not frame.pointer_released:
-            return None
         captured = self._capture
-        self._capture = None
-        self._pointer_owned = False
+        if frame.pointer_released:
+            self._capture = None
+            self._pointer_owned = False
+        if captured is None or not self._eligible(captured):
+            return None
+        if captured.draggable:
+            return lambda: captured.drag(frame.x)
         if (
-            captured is not None
-            and self._eligible(captured)
+            frame.pointer_released
             and self._content_rect().contains(frame.x, frame.y)
             and captured.rect.contains(frame.x, frame.y)
         ):
-            return captured
+            return captured.activate
         return None
 
     def update(self, frame: UIInput) -> UIResult:
@@ -594,19 +844,25 @@ class Column:
             if self._move_focus(direction):
                 keyboard_consumed = True
 
-        activate = self._pointer_activation(frame, pointer_consumed)
-        if frame.confirm and self._eligible(self._focus):
-            self._ensure_focus_visible()
-            keyboard_consumed = True
-            if activate is None and isinstance(self._focus, Button):
-                activate = self._focus
-                # Confirm completes this interaction now. Keep pointer ownership
-                # to swallow its eventual release, but do not activate twice.
+        action = self._pointer_action(frame, pointer_consumed)
+        if isinstance(self._focus, _Control) and self._eligible(self._focus):
+            if frame.confirm:
+                self._ensure_focus_visible()
+                keyboard_consumed = True
+                if action is None and not self._focus.draggable:
+                    action = self._focus.activate
                 self._capture = None
-        if activate is not None:
-            # State is settled before callback; callback may remove the widget,
-            # replace the entire panel or request a scene change.
-            activate.on_click()
+            if (frame.decrement or frame.increment) and self._focus.draggable:
+                self._ensure_focus_visible()
+                keyboard_consumed = True
+                if action is None and frame.decrement != frame.increment:
+                    control = self._focus
+                    direction = 1 if frame.increment else -1
+                    action = lambda: control.adjust(direction)
+                    self._capture = None
+        if action is not None:
+            # Settle ownership before callback, which may remove this control.
+            action()
         return UIResult(pointer_consumed, keyboard_consumed)
 
     def draw(self, canvas: Canvas | FontCanvas | ClippingCanvas) -> None:
