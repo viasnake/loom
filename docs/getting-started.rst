@@ -120,10 +120,15 @@ lines are preserved; other whitespace is collapsed. Long words and Japanese text
 split at code points, not grapheme clusters or Japanese kinsoku boundaries. Use a
 font with the required glyphs. A single glyph wider than the available width still
 overflows; explicit widget heights can also overflow. A finite panel clips to its
-viewport, not to individual label boxes. Split very large documents into smaller
-paragraphs/pages ahead of time; this helper is not optimized for tens of thousands
-of characters. Other widgets, and labels with ``wrap=False`` (the default), retain
-their previous unwrapped behavior.
+viewport, not to individual label boxes. The built-in fixed-width font wraps in
+linear work. Custom fonts use a temporary measurement cache bounded by
+``FontCatalog.max_entries``; only the final wrapped result enters the shared
+cache, so intermediate prefixes do not evict other measurements. This avoids
+retaining prefixes after wrapping, not their temporary peak memory. Custom font
+widths need not be additive or monotonic, so long unbroken tokens can still
+require quadratic measurement work. Split very large custom-font documents into
+smaller paragraphs/pages ahead of time. Other widgets, and labels with
+``wrap=False`` (the default), retain their previous unwrapped behavior.
 
 Scrollable panels
 -----------------
