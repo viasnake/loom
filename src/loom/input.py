@@ -14,11 +14,12 @@ _EMPTY_STICKS = MappingProxyType({})
 class InputFrame:
     """One update snapshot. Wheel is the backend delta, positive upward.
 
+    Action collections and pointer coordinates are copied into immutable values;
+    callers can reuse their mutable input buffers after constructing a frame.
+
     cancelled identifies interrupted digital actions and nonneutral sticks.
     Digital cancellations also appear in released; stick names do not generate
     held/pressed/released edges. sticks contains normalized vectors, never raw axes.
-    Action collections and pointer coordinates are copied into immutable values;
-    callers can reuse their mutable input buffers after constructing a frame.
     """
 
     held: frozenset[str] = frozenset()
