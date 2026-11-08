@@ -80,7 +80,8 @@ To use the same font for UI measurement and rendering:
 
 Default widget heights grow to fit the measured line boxes. Changing text or
 re-registering a font invalidates the layout before hit testing. An explicit
-``height`` overrides automatic sizing. Text does not wrap automatically. Unbounded panels do not clip; provide
+``height`` overrides automatic sizing. Text does not wrap unless requested with
+``Label(..., wrap=True)``. Unbounded panels do not clip; provide
 sufficient width and height, or use the finite viewport described below. The same typography is used
 by ``panel.draw(pyxel)``, so no custom drawing adapter is needed. Buttons center
 text vertically. Custom canvases used with typography must accept the ``font``
@@ -93,6 +94,36 @@ activate it.
 
 Fonts are not bundled. Use a font whose license permits your intended use.
 Text layout does not provide IME, shaping or Japanese kinsoku rules.
+
+Wrapped descriptions and dialogue
+---------------------------------
+
+Use ``Label(wrap=True)`` for plain paragraphs constrained to the panel width:
+
+.. code-block:: python
+
+   description = Label("Find the old tower beyond the river, then return here.", wrap=True)
+   panel = Column([description, Button("Continue", continue_game)], width=240)
+   panel.configure(width=160)  # Reflows before the next update or draw.
+   description.text = "The tower door is open."
+
+Wrapping uses ``Column.width - 2 * padding`` and the panel's typography. Without
+``Typography`` it uses the built-in 4-pixel advance and 6-pixel line box; no
+font-aware canvas is required. Automatic height grows with the wrapped lines.
+Changing text, ``wrap``, panel width/padding or font registration invalidates the
+layout. Idle updates and draws reuse the measured lines, including in scrollable
+panels. Custom widgets can override ``measure_height(width, typography)`` for
+width-aware sizing; its default delegates to the existing ``layout_height`` hook.
+
+This is plain-text wrapping, not a rich-text engine. Explicit newlines and empty
+lines are preserved; other whitespace is collapsed. Long words and Japanese text
+split at code points, not grapheme clusters or Japanese kinsoku boundaries. Use a
+font with the required glyphs. A single glyph wider than the available width still
+overflows; explicit widget heights can also overflow. A finite panel clips to its
+viewport, not to individual label boxes. Split very large documents into smaller
+paragraphs/pages ahead of time; this helper is not optimized for tens of thousands
+of characters. Other widgets, and labels with ``wrap=False`` (the default), retain
+their previous unwrapped behavior.
 
 Scrollable panels
 -----------------

@@ -17,7 +17,7 @@ Status
 This is an early alpha. UI includes flat columns, buttons, toggles, sliders and
 optional vertical viewports. Input settings support capture and explicit conflict
 resolution. Scene-owned timelines provide numeric animation and delayed work.
-Nested layouts and automatic text wrapping are not implemented. Fonts are
+Labels can opt into width-aware text wrapping. Nested layouts are not implemented. Fonts are
 supplied by the game. Audio buses own explicit channel groups and compose volume
 without changing sound assets. Automatic OS focus handling and asynchronous
 saves are not implemented.

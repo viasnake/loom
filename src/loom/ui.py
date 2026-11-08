@@ -179,6 +179,15 @@ class Widget:
     def layout_height(self, typography: Typography | None) -> int:
         return self.height if self.height is not None else 12
 
+    def measure_height(self, width: int, typography: Typography | None) -> int:
+        """Measure at the available logical width before assigning rect.
+
+        Called only during invalidated layout, not every draw. The default keeps
+        existing layout_height overrides working; width-aware widgets override
+        this method and may cache their drawing layout here.
+        """
+        return self.layout_height(typography)
+
     def draw(
         self,
         canvas: Canvas,
@@ -219,22 +228,73 @@ class _TextWidget(Widget):
 
 
 class Label(_TextWidget):
-    """Text with automatic line-box height (minimum 12); no wrapping/clipping."""
+    """Text with automatic height (minimum 12) and optional width-based wrapping.
+
+    wrap=True uses FontCatalog's greedy whitespace/code-point wrapping, not rich
+    text, grapheme shaping or Japanese kinsoku. Explicit newlines are retained;
+    other whitespace is collapsed. A single glyph wider than available width
+    still overflows. Explicit height is respected; widgets do not clip themselves.
+    """
 
     def __init__(
-        self, text: str, *, height: int | None = None, color: int | None = None
+        self,
+        text: str,
+        *,
+        height: int | None = None,
+        color: int | None = None,
+        wrap: bool = False,
     ):
         super().__init__(height=height)
         self.text = text
         self.color = color
+        self._wrap = False
+        self.wrap = wrap
+        self._default_fonts: FontCatalog | None = None
+        self._lines: tuple[str, ...] | None = None
+        self._line_height = 6
+
+    @property
+    def wrap(self) -> bool:
+        return self._wrap
+
+    @wrap.setter
+    def wrap(self, value: bool) -> None:
+        if type(value) is not bool:
+            raise TypeError("wrap must be a bool")
+        if value != self._wrap:
+            self._wrap = value
+            self._invalidate()
+
+    def measure_height(self, width: int, typography: Typography | None) -> int:
+        if not self.wrap:
+            self._lines = None
+            return self.layout_height(typography)
+        if typography is None:
+            if self._default_fonts is None:
+                # Wrapped lines are already retained by the label; do not keep
+                # a second per-label cache of every measured word prefix.
+                self._default_fonts = FontCatalog(max_entries=0)
+            fonts, font = self._default_fonts, "default"
+        else:
+            fonts, font = typography.fonts, typography.font
+        self._lines = fonts.wrap(self.text, width, font)
+        self._line_height = fonts.measure("", font)[1]
+        self._text_height = len(self._lines) * self._line_height
+        return (
+            self.height
+            if self.height is not None
+            else max(self.minimum_height, self._text_height)
+        )
 
     def draw(self, canvas: Canvas, theme: Theme, **_: bool) -> None:
-        canvas.text(
-            self.rect.x,
-            self.rect.y,
-            self.text,
-            theme.text if self.color is None else self.color,
-        )
+        color = theme.text if self.color is None else self.color
+        if self._lines is None:
+            canvas.text(self.rect.x, self.rect.y, self.text, color)
+        else:
+            for index, line in enumerate(self._lines):
+                canvas.text(
+                    self.rect.x, self.rect.y + index * self._line_height, line, color
+                )
 
 
 class _Control(_TextWidget):
@@ -542,8 +602,9 @@ class Column:
 
     With typography, the drawing target must accept Pyxel's text(..., font=)
     keyword. Fonts are measured before input routing; changing registrations or
-    assigning typography invalidates layout automatically. Text is not wrapped
-    or clipped to individual widgets; choose sufficient width/explicit heights.
+    assigning typography invalidates layout automatically. Label(wrap=True)
+    explicitly wraps to available width. Other text is not wrapped; widgets do
+    not clip themselves, so choose sufficient width/explicit heights.
 
     viewport_height fixes the outer panel height at construction. Its padded
     interior clips children. scroll_offset uses logical pixels and clamps to the
@@ -719,7 +780,9 @@ class Column:
         for index, child in enumerate(self._visible):
             if index:
                 y += self._gap
-            height = child.layout_height(self.typography)
+            height = child.measure_height(
+                self._width - 2 * self._padding, self.typography
+            )
             child.rect = Rect(
                 self._x + self._padding,
                 y,
