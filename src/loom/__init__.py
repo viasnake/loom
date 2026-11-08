@@ -16,9 +16,12 @@ from .text import FontCatalog
 from .ui import Button, Column, Label, Slider, Toggle, Theme, Typography, UIInput
 from .storage import SaveStore
 from .canvas import PyxelCanvas
+from .camera import Camera2D, CameraView
 from .routing import UIRouter, UIRouteResult
 
 __all__ = [
+    "Camera2D",
+    "CameraView",
     "ActionRepeat",
     "Scene",
     "SceneStack",
