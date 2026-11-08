@@ -7,7 +7,7 @@ from .runtime import GameApp
 from .display import DisplayConfig, Viewport
 from .palette import Palette
 from .text import FontCatalog
-from .ui import Button, Column, Label, Theme, UIInput
+from .ui import Button, Column, Label, Theme, Typography, UIInput
 from .storage import SaveStore
 
 __all__ = [
@@ -24,6 +24,7 @@ __all__ = [
     "Column",
     "Label",
     "Theme",
+    "Typography",
     "UIInput",
     "SaveStore",
 ]

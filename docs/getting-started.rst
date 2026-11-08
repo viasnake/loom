@@ -47,7 +47,7 @@ UI and resources
 ----------------
 
 ``Column`` holds ``Label`` and ``Button`` widgets and reuses its layout until
-invalidated. Convert actions to ``UIInput`` and respect the returned
+invalidated. Use ``UIInput.from_frame(frame)`` and respect the returned
 ``UIResult`` before forwarding input to gameplay. The showcase demonstrates
 this, including a pause overlay. Call ``Column.reset_input()`` when a screen
 loses input ownership. It does not detect OS focus changes automatically.
@@ -62,6 +62,34 @@ The layered text sample accepts a game-supplied font:
 .. code-block:: console
 
    python examples/layers.py --font /path/to/font.ttf
+
+To use the same font for UI measurement and rendering:
+
+.. code-block:: python
+
+   from loom import Button, Column, FontCatalog, Label
+   from loom.ui import Typography
+
+   fonts = FontCatalog()
+   fonts.register("body", pyxel.Font("assets/body.ttf", 18), line_height=24)
+   panel = Column(
+       [Label("Settings\nChoose an option"), Button("Continue", continue_game)],
+       width=360,
+       typography=Typography(fonts, font="body"),
+   )
+
+Default widget heights grow to fit the measured line boxes. Changing text or
+re-registering a font invalidates the layout before hit testing. An explicit
+``height`` overrides automatic sizing. Width is not wrapped or clipped: provide
+sufficient panel width and height for the content. The same typography is used
+by ``panel.draw(pyxel)``, so no custom drawing adapter is needed. Buttons center
+text vertically. Custom canvases used with typography must accept the ``font``
+keyword in ``text()``, as Pyxel and Pyxel Image do; see ``FontCanvas``.
+
+``UIInput.from_frame()`` uses the standard action names ``primary``, ``confirm``,
+``cancel``, ``next`` and ``previous``. Change physical bindings in ``ActionMap``,
+not in the UI. It converts edge events, so holding a button does not repeatedly
+activate it.
 
 Fonts are not bundled. Use a font whose license permits your intended use.
 Text layout does not provide IME, shaping or Japanese kinsoku rules.

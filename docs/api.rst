@@ -43,6 +43,13 @@ Display
 UI
 --
 
+.. autoclass:: loom.ui.FontCanvas
+   :members:
+
+.. autoclass:: loom.ui.Typography
+   :members:
+
+
 .. autoclass:: loom.ui.Column
    :members:
    :undoc-members:
@@ -58,6 +65,7 @@ UI
 .. autoclass:: loom.ui.Theme
 
 .. autoclass:: loom.ui.UIInput
+   :members: from_frame
 
 .. autoclass:: loom.ui.UIResult
    :members: consumed
