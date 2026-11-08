@@ -57,11 +57,11 @@ class SceneStack:
         self._closed = False
         try:
             initial.enter(self)
-        except Exception as initialization_error:
+        except BaseException as initialization_error:
             try:
                 self.close()
-            except Exception as cleanup_error:
-                raise ExceptionGroup(
+            except BaseException as cleanup_error:
+                raise BaseExceptionGroup(
                     "Scene initialization and cleanup failed",
                     [initialization_error, cleanup_error],
                 ) from None
@@ -149,8 +149,8 @@ class SceneStack:
     def close(self) -> None:
         """Exit every scene once, even if another exit fails.
 
-        Closing is idempotent. All cleanup failures are preserved in an
-        ExceptionGroup; callbacks cannot queue new work on a closed stack.
+        Closing is idempotent. All cleanup failures are preserved in a
+        BaseExceptionGroup; callbacks cannot queue new work on a closed stack.
         """
         if self._closed:
             return
@@ -160,7 +160,7 @@ class SceneStack:
         while self._scenes:
             try:
                 self._scenes.pop().exit()
-            except Exception as error:
+            except BaseException as error:
                 errors.append(error)
         if errors:
-            raise ExceptionGroup("Scene cleanup failed", errors)
+            raise BaseExceptionGroup("Scene cleanup failed", errors)

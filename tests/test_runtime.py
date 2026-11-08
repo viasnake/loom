@@ -42,7 +42,18 @@ class RuntimeTests(unittest.TestCase):
             self.assertIsNone(scene.last.world_pointer)
             engine.mouse_y = 10
             app._update()
-            self.assertEqual(scene.last.world_pointer, (0.6, 1.0))
+            # Runtime picking now identifies the rendered pixel, not a fractional point.
+            self.assertEqual(scene.last.world_pointer, (0, 1))
+            self.assertEqual(app.display.viewport.to_local(3, 10), (0.6, 1.0))
+
+    def test_fractional_runtime_pointer_includes_painted_geometric_margin(self):
+        app, scene, engine = self.make_app()
+        app.display.resize(DisplayConfig((7, 7), (5, 3), "fit"))
+        engine.mouse_x, engine.mouse_y = 1, 1
+        self.assertIsNone(app.display.viewport.to_local(1, 1))
+        with patch.dict(sys.modules, {"pyxel": engine}):
+            app._update()
+        self.assertEqual(scene.last.world_pointer, (1, 0))
 
     def test_quit_closes_scene_before_native_exit(self):
         app, scene, engine = self.make_app()
@@ -78,7 +89,7 @@ class RuntimeTests(unittest.TestCase):
         scene.update = lambda frame, dt: coordinates.append(frame.world_pointer)
         with patch.dict(sys.modules, {"pyxel": engine}):
             app._update()
-        self.assertEqual(coordinates, [(0.6, 1.0), (0.3, 1.0)])
+        self.assertEqual(coordinates, [(0, 1), (0, 1)])
 
     def test_resize_failure_preserves_active_display(self):
         app, scene, engine = self.make_app()

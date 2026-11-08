@@ -172,3 +172,69 @@ class TransitionFailureTests(unittest.TestCase):
         stack.close()
         self.assertEqual(old.events.count("exit"), 1)
         self.assertEqual(replacement.events, [])
+
+
+class InterruptedLifecycleTests(unittest.TestCase):
+    def test_close_preserves_interrupts_and_attempts_all_cleanup_once(self):
+        for interruption in (KeyboardInterrupt("interrupt"), SystemExit(7)):
+            with self.subTest(interruption=type(interruption).__name__):
+                order = []
+                failure = OSError("root cleanup")
+
+                class Root(Probe):
+                    def exit(self):
+                        order.append("root")
+                        raise failure
+
+                class Modal(Probe):
+                    def exit(self):
+                        order.append("modal")
+                        raise interruption
+
+                stack = SceneStack(Root())
+                stack.push(Modal())
+                stack.update(InputFrame(), 0)
+                with self.assertRaises(BaseExceptionGroup) as caught:
+                    stack.close()
+                self.assertEqual(caught.exception.exceptions, (interruption, failure))
+                self.assertEqual(order, ["modal", "root"])
+                stack.close()
+                self.assertEqual(order, ["modal", "root"])
+                with self.assertRaisesRegex(RuntimeError, "closed"):
+                    stack.push(Probe())
+
+    def test_interrupted_initialization_cleans_up_and_preserves_original(self):
+        for interruption in (KeyboardInterrupt("interrupt"), SystemExit(7)):
+            with self.subTest(interruption=type(interruption).__name__):
+
+                class Interrupted(Probe):
+                    def enter(self, stack):
+                        super().enter(stack)
+                        raise interruption
+
+                scene = Interrupted()
+                with self.assertRaises(type(interruption)) as caught:
+                    SceneStack(scene)
+                self.assertIs(caught.exception, interruption)
+                self.assertEqual(scene.events, ["enter", "exit"])
+
+    def test_initialization_error_and_cleanup_interrupt_are_both_preserved(self):
+        failure = ValueError("initialization")
+        interruption = KeyboardInterrupt("cleanup")
+
+        class Interrupted(Probe):
+            def enter(self, stack):
+                super().enter(stack)
+                raise failure
+
+            def exit(self):
+                super().exit()
+                raise interruption
+
+        scene = Interrupted()
+        with self.assertRaises(BaseExceptionGroup) as caught:
+            SceneStack(scene)
+        self.assertIs(caught.exception.exceptions[0], failure)
+        cleanup = caught.exception.exceptions[1]
+        self.assertEqual(cleanup.exceptions, (interruption,))
+        self.assertEqual(scene.events, ["enter", "exit"])

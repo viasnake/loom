@@ -137,7 +137,7 @@ class GameApp:
         frame = self.actions.sample(
             pyxel.btn,
             pointer,
-            self.display.viewport.to_local(*pointer),
+            self.display.pick(*pointer),
             pyxel.mouse_wheel,
             axis_value=pyxel.btnv if self.sticks else None,
         )

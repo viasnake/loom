@@ -17,6 +17,7 @@ class InputFrame:
     cancelled identifies interrupted digital actions and nonneutral sticks.
     Digital cancellations also appear in released; stick names do not generate
     held/pressed/released edges. sticks contains normalized vectors, never raw axes.
+    GameApp sets world_pointer to a discrete rendered source pixel, or None.
     """
 
     held: frozenset[str] = frozenset()
