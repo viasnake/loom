@@ -118,6 +118,15 @@ Time and animation
 .. autofunction:: loom.timing.smoothstep
 .. autofunction:: loom.timing.ease_out_cubic
 
+Audio
+-----
+
+.. autoclass:: loom.audio.AudioMixer
+   :members:
+
+.. autoclass:: loom.audio.Voice
+   :members:
+
 Colors and text
 ---------------
 
