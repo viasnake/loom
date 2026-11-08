@@ -14,10 +14,12 @@ rendering and 3D physics.
 Status
 ------
 
-This is an early alpha. The UI provides flat columns, labels and buttons, with optional vertical
-viewports. Nested layouts and automatic text wrapping are not implemented. Fonts are supplied by
-the game. Automatic OS focus handling, audio buses and asynchronous saves are
-not implemented.
+This is an early alpha. UI includes flat columns, buttons, toggles, sliders and
+optional vertical viewports. Input settings support capture and explicit conflict
+resolution. Scene-owned timelines provide numeric animation and delayed work.
+Nested layouts and automatic text wrapping are not implemented. Fonts are
+supplied by the game. Automatic OS focus handling, audio buses and asynchronous
+saves are not implemented.
 
 Native headless tests exercise real Pyxel buffers without a physical window.
 Windows executable launch, DPI, physical controllers, long-session memory and

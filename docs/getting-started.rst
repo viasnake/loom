@@ -194,6 +194,47 @@ cancel, scrolling, hiding or disabling a control ends an ongoing drag without
 undoing changes already made. Persistence and audio effects remain game-owned;
 these widgets do not write files or change global sound settings.
 
+Time and animation
+------------------
+
+.. code-block:: python
+
+   from loom import Timeline
+   from loom.timing import ease_out_cubic
+
+   animation = Timeline()
+   panel_x = animation.tween(-240, 20, 0.35, ease=ease_out_cubic)
+   animation.call_later(1.0, show_hint)
+
+   # In the owning scene's update:
+   animation.update(dt)
+   # In draw, read panel_x.value and round at the pixel boundary.
+   # In exit:
+   animation.clear()
+
+Time advances only through ``update(dt)``. A scene that is paused by an overlay
+naturally pauses its timeline; Loom does not register global animation tasks.
+Clear scene-owned timelines on exit to discard outstanding notifications and
+captured callback references. Timers are one-shot, not repeating or wall-clock
+jobs. Delays can be zero (run on the next update); tween durations must be
+positive. Large ``dt`` completes a task once and lands a tween exactly at its
+endpoint, without repeated catch-up callbacks. Time uses floating-point seconds;
+roundoff in repeated updates can postpone a boundary to the following update.
+This is not an exact integer-tick scheduler.
+
+Handles expose ``done``, ``cancelled`` and ``cancel()``; tweens expose ``value``.
+Cancelling does not run completion callbacks. Tasks scheduled inside callbacks
+start on the next update, not in unused time from the current one. Recursive
+updates are rejected. Callback or easing exceptions cancel the remaining tasks
+and propagate; there is no rollback of callbacks already run. The timeline can
+then be reused. Easing receives normalized progress and returns a finite value;
+overshoot is allowed, but non-finite interpolation is rejected. Extremely large
+endpoints combined with overshoot can overflow intermediate float operations;
+keep animation values within a practical numeric range.
+
+This is numeric interpolation, not an alpha compositor, property-binding system,
+async scheduler or animation editor. Games decide how values affect drawing.
+
 Saving
 ------
 

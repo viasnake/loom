@@ -102,6 +102,22 @@ UI
    :members: consumed
    :undoc-members:
 
+Time and animation
+------------------
+
+.. autoclass:: loom.timing.Timeline
+   :members:
+
+.. autoclass:: loom.timing.Tween
+   :members:
+
+.. autoclass:: loom.timing.Timer
+   :members:
+
+.. autofunction:: loom.timing.linear
+.. autofunction:: loom.timing.smoothstep
+.. autofunction:: loom.timing.ease_out_cubic
+
 Colors and text
 ---------------
 
