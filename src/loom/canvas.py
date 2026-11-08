@@ -25,6 +25,9 @@ class PyxelCanvas:
     def text(self, x: int, y: int, text: str, col: int, *, font: Any = None) -> None:
         self.target.text(x, y, text, col, font=font)
 
+    def blt(self, x, y, image, u, v, width, height, colkey=None) -> None:
+        self.target.blt(x, y, image, u, v, width, height, colkey)
+
     @contextmanager
     def clipped(self, bounds: Rect) -> Iterator[None]:
         """Temporarily intersect the current managed clip with bounds."""
