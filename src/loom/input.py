@@ -1,16 +1,22 @@
 """One input snapshot per update; named actions rather than game key codes."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from collections.abc import Callable, Iterable, Mapping
 from types import MappingProxyType
+from math import hypot
+
+from .sticks import StickBinding
+
+_EMPTY_STICKS = MappingProxyType({})
 
 
 @dataclass(frozen=True, slots=True)
 class InputFrame:
     """One update snapshot. Wheel is the backend delta, positive upward.
 
-    cancelled identifies synthetic releases, which must not commit UI gestures.
-    It accompanies released so gameplay can stop held actions normally.
+    cancelled identifies interrupted digital actions and nonneutral sticks.
+    Digital cancellations also appear in released; stick names do not generate
+    held/pressed/released edges. sticks contains normalized vectors, never raw axes.
     """
 
     held: frozenset[str] = frozenset()
@@ -20,6 +26,31 @@ class InputFrame:
     world_pointer: tuple[float, float] | None = None
     wheel: float = 0
     cancelled: frozenset[str] = frozenset()
+    sticks: Mapping[str, tuple[float, float]] = field(
+        default_factory=lambda: _EMPTY_STICKS, hash=False
+    )
+
+    def __post_init__(self):
+        if not isinstance(self.sticks, Mapping):
+            raise TypeError("sticks must be a mapping")
+        if not self.sticks:
+            object.__setattr__(self, "sticks", _EMPTY_STICKS)
+            return
+        snapshot = {}
+        for name, vector in self.sticks.items():
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError("stick names must be nonempty strings")
+            vector = tuple(vector)
+            if len(vector) != 2 or any(
+                type(v) not in (int, float) or not -1 <= v <= 1 for v in vector
+            ):
+                raise ValueError(
+                    "stick vectors must contain two finite normalized components"
+                )
+            if hypot(*vector) > 1 + 1e-12:
+                raise ValueError("stick vector magnitude must not exceed one")
+            snapshot[name] = vector
+        object.__setattr__(self, "sticks", MappingProxyType(snapshot))
 
     def without(self, actions: set[str]) -> "InputFrame":
         return InputFrame(
@@ -30,6 +61,7 @@ class InputFrame:
             self.world_pointer,
             self.wheel,
             self.cancelled - actions,
+            {name: value for name, value in self.sticks.items() if name not in actions},
         )
 
 
@@ -44,8 +76,29 @@ class ActionMap:
     """
 
     def __init__(
-        self, bindings: Mapping[str, Iterable[int]], *, watched_keys: Iterable[int] = ()
+        self,
+        bindings: Mapping[str, Iterable[int]],
+        *,
+        watched_keys: Iterable[int] = (),
+        sticks: Mapping[str, StickBinding] | None = None,
     ):
+        if sticks is not None and not isinstance(sticks, Mapping):
+            raise TypeError("sticks must be a mapping")
+        self._sticks = MappingProxyType(dict(sticks) if sticks is not None else {})
+        for name, binding in self._sticks.items():
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError("stick names must be nonempty strings")
+            if not isinstance(binding, StickBinding):
+                raise TypeError("stick bindings must be StickBinding instances")
+        self._axis_keys = tuple(
+            dict.fromkeys(
+                code
+                for binding in self._sticks.values()
+                for code in (binding.x, binding.y)
+            )
+        )
+        self._stick_values: dict[str, tuple[float, float]] = {}
+        self._blocked_sticks: set[str] = set()
         self._watched_keys = self._normalize({"watched": watched_keys})["watched"]
         self._physical_held: frozenset[int] = frozenset()
         self._physical_pressed: frozenset[int] = frozenset()
@@ -84,6 +137,15 @@ class ActionMap:
         return result
 
     def _install(self, normalized: dict[str, tuple[int, ...]]) -> None:
+        if normalized.keys() & self._sticks.keys():
+            raise ValueError("digital action and stick names must be distinct")
+        digital_codes = {key for codes in normalized.values() for key in codes} | set(
+            self._watched_keys
+        )
+        if digital_codes.intersection(self._axis_keys):
+            raise ValueError(
+                "stick axis codes must not be polled as digital or watched keys"
+            )
         self._bindings = MappingProxyType(normalized)
         self._keys = tuple(
             dict.fromkeys(
@@ -96,6 +158,11 @@ class ActionMap:
     def bindings(self) -> Mapping[str, tuple[int, ...]]:
         """Immutable snapshot; old snapshots remain unchanged after replacement."""
         return self._bindings
+
+    @property
+    def sticks(self) -> Mapping[str, StickBinding]:
+        """Fixed, immutable stick configuration; independent of digital rebinding."""
+        return self._sticks
 
     @property
     def physical_held(self) -> frozenset[int]:
@@ -123,7 +190,10 @@ class ActionMap:
         self._cancel_actions()
 
     def _cancel_actions(self) -> None:
-        self._cancelled |= self._held
+        self._cancelled |= self._held | {
+            name for name, value in self._stick_values.items() if value != (0, 0)
+        }
+        self._stick_values = {}
         self._held = frozenset()
         self._rebind_pending = True
         self._resync = False
@@ -131,8 +201,9 @@ class ActionMap:
     def cancel(self) -> None:
         """Queue an explicit input interruption for the next sample.
 
-        Emit cancelled/released for prior logical held actions once, and suppress
-        all keys down at that next sample until up. Also suppress that sample's
+        Emit cancelled/released for prior digital held actions once, and suppress
+        all keys down at that next sample until up. Nonneutral sticks are reported
+        in cancelled only and suppressed until radial neutral. Also suppress that sample's
         physical_pressed and wheel; pointer and physical_held stay raw. Cancel an active KeyCapture
         separately because it consumes raw held snapshots. This is not automatic
         OS-focus detection. Repeated requests before sampling coalesce.
@@ -146,8 +217,18 @@ class ActionMap:
         pointer: tuple[float, float] = (0, 0),
         world_pointer: tuple[float, float] | None = None,
         wheel: float = 0,
+        *,
+        axis_value: Callable[[int], int] | None = None,
     ) -> InputFrame:
-        # Read each physical key once even when several actions share it.
+        if self._axis_keys and axis_value is None:
+            raise ValueError("stick bindings require an axis_value reader")
+        axes = {key: axis_value(key) for key in self._axis_keys}
+        raw_sticks = {
+            name: binding.normalize(axes[binding.x], axes[binding.y])
+            for name, binding in self._sticks.items()
+        }
+        nonneutral = {name for name, value in raw_sticks.items() if value != (0, 0)}
+        # Digital and analog codes are polled separately, once per unique code.
         keys = {key: bool(is_down(key)) for key in self._keys}
         physical = frozenset(key for key, down in keys.items() if down)
         cancelling = self._cancel_raw_pending
@@ -159,12 +240,18 @@ class ActionMap:
         self._cancel_raw_pending = False
         self._physical_held = physical
         if self._rebind_pending:
+            self._blocked_sticks = nonneutral
             self._blocked_keys = {key for key, down in keys.items() if down}
             self._rebind_pending = False
         elif self._blocked_keys:
             self._blocked_keys.intersection_update(
                 key for key, down in keys.items() if down
             )
+        self._blocked_sticks.intersection_update(nonneutral)
+        stick_values = {
+            name: (0.0, 0.0) if name in self._blocked_sticks else value
+            for name, value in raw_sticks.items()
+        }
         held = frozenset(
             name
             for name, values in self.bindings.items()
@@ -176,14 +263,16 @@ class ActionMap:
         frame = InputFrame(
             held,
             held - self._held,
-            (self._held - held) | self._cancelled,
+            (self._held - held) | (self._cancelled - self._sticks.keys()),
             pointer,
             world_pointer,
             0 if cancelling else wheel,
             self._cancelled,
+            stick_values,
         )
         self._cancelled = frozenset()
         self._held = held
+        self._stick_values = stick_values
         return frame
 
     def reset(self) -> None:

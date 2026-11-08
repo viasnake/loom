@@ -4,6 +4,7 @@ from collections.abc import Iterable, Mapping
 
 from .app import Scene, SceneStack
 from .input import ActionMap
+from .sticks import StickBinding
 from .display import DisplayConfig, PyxelDisplay
 
 
@@ -22,14 +23,21 @@ class GameApp:
         fps: int = 60,
         bindings: dict[str, tuple[int, ...]] | None = None,
         watched_keys: Iterable[int] = (),
+        sticks: Mapping[str, StickBinding] | None = None,
     ):
         if type(fps) is not int or not 1 <= fps <= 240:
             raise ValueError("fps must be an integer between 1 and 240")
         self.title, self.initial_scene = title, initial_scene
         self.config = display or DisplayConfig()
         self.fps = fps
-        self.bindings = None if bindings is None else ActionMap(bindings).bindings
         self._watched_keys = ActionMap({"watched": watched_keys}).bindings["watched"]
+        configured = ActionMap(
+            {} if bindings is None else bindings,
+            watched_keys=self._watched_keys,
+            sticks=sticks,
+        )
+        self.bindings = None if bindings is None else configured.bindings
+        self.sticks = configured.sticks
         self._bindings_request = None
         self._input_cancel_requested = False
         self._resize_request = None
@@ -50,7 +58,9 @@ class GameApp:
         requested before run. Existing held actions are cancelled on the next
         sample; new bindings held at application wait for release before firing.
         """
-        self._bindings_request = ActionMap(bindings).bindings
+        self._bindings_request = ActionMap(
+            bindings, watched_keys=self._watched_keys, sticks=self.sticks
+        ).bindings
 
     def request_input_cancel(self) -> None:
         """Interrupt named input before the next frame's physical sample.
@@ -97,7 +107,9 @@ class GameApp:
         if self._bindings_request is not None:
             bindings = self._bindings_request
             self._bindings_request = None
-        self.actions = ActionMap(bindings, watched_keys=self._watched_keys)
+        self.actions = ActionMap(
+            bindings, watched_keys=self._watched_keys, sticks=self.sticks
+        )
         self.scenes = SceneStack(self.initial_scene, self.request_quit)
         try:
             pyxel.run(self._update, self._draw)
@@ -127,6 +139,7 @@ class GameApp:
             pointer,
             self.display.viewport.to_local(*pointer),
             pyxel.mouse_wheel,
+            axis_value=pyxel.btnv if self.sticks else None,
         )
         self.scenes.update(frame, 1 / self.fps)
         if self._quit_requested:
