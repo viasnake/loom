@@ -4,6 +4,7 @@ from dataclasses import dataclass, replace
 from typing import Iterable
 
 from .input import InputFrame
+from .repeat import ActionRepeat, _seconds
 from .ui import Column, UIInput
 
 
@@ -25,6 +26,18 @@ class UIRouter:
     then block those still physically held until release. reset should accompany
     focus loss/resynchronization, not replace a real release event every frame.
 
+    Repeat is opt-in and restricted to navigation/slider actions. When enabled,
+    update requires dt in seconds. Changing the active panel/modal or cancelling
+    forgets repeat gestures until a fresh press. Pulses affect UI only, never
+    the physical edges returned to gameplay. Do not share the repeater elsewhere.
+    A context-transition frame's physical press works once but does not arm
+    repeat. Opposite holds, cancel, ignored initial presses, and multiple standard
+    keyboard presses discard repeat gestures (aggregate UI consumption cannot
+    identify which simultaneous action was accepted). Fresh presses are then
+    required. Slider adjustment is tied to focused-widget identity; navigation
+    or pointer presses suppress due synthetic adjustments before dispatch.
+    Navigation repeat itself survives widget focus changes.
+
     InputFrame is a sampled state: simultaneous press/release of the same action
     is treated as a completed pulse, not two distinct gestures. Pointer coordinates
     remain in remaining; coordinate-driven gameplay must check pointer_consumed.
@@ -36,6 +49,7 @@ class UIRouter:
         *,
         pointer_actions: Iterable[str] = (),
         navigation_actions: Iterable[str] = (),
+        repeat: ActionRepeat | None = None,
     ):
         if isinstance(pointer_actions, (str, bytes)) or isinstance(
             navigation_actions, (str, bytes)
@@ -57,6 +71,16 @@ class UIRouter:
             for name in self.pointer_actions | self.navigation_actions
         ):
             raise ValueError("action names must be nonempty strings")
+        if repeat is not None:
+            if not isinstance(repeat, ActionRepeat):
+                raise TypeError("repeat must be an ActionRepeat or None")
+            if repeat.actions - {"next", "previous", "decrement", "increment"}:
+                raise ValueError(
+                    "UI repeat supports only next/previous/decrement/increment"
+                )
+        self._repeat = repeat
+        self._repeat_context: tuple[Column | None, Column | None] | None = None
+        self._repeat_focus = None
         self._panels: list[Column] = []
         self._active: Column | None = None
         self._pointer_owner: Column | None = None
@@ -96,9 +120,78 @@ class UIRouter:
     def _modal(self) -> Column | None:
         return next((p for p in reversed(self._panels) if p.modal), None)
 
+    def _track_repeat_focus(self) -> None:
+        focus = self._active.focused if self._active is not None else None
+        if focus is not self._repeat_focus:
+            self._repeat.reset({"decrement", "increment"})
+        self._repeat_focus = focus
+
+    def _repeat_input(self, frame, ui, dt, modal, reset) -> UIInput:
+        """Add UI-only pulses after selecting the receiving panel."""
+        repeat = self._repeat
+        if repeat is None:
+            return ui
+        self._track_repeat_focus()
+        context = (self._active, modal)
+        changed = self._repeat_context is not None and context != self._repeat_context
+        opposed = any(
+            pair <= frame.held
+            for pair in ({"next", "previous"}, {"decrement", "increment"})
+        )
+        pulses = repeat.update(
+            frame.without(self._game_held),
+            dt,
+            reset=reset or ui.cancel or changed or opposed or self._active is None,
+        )
+        self._repeat_context = context
+        # Navigation/pointer presses can move focus in this very dispatch.
+        # Never apply an old slider's synthetic pulse to the new focus target.
+        if (
+            ui.next_focus
+            or ui.previous_focus
+            or ui.pointer_pressed
+            or pulses & {"next", "previous"}
+        ):
+            pulses = pulses - {"decrement", "increment"}
+            repeat.reset({"decrement", "increment"})
+        return replace(
+            ui,
+            next_focus=ui.next_focus or "next" in pulses,
+            previous_focus=ui.previous_focus or "previous" in pulses,
+            decrement=ui.decrement or "decrement" in pulses,
+            increment=ui.increment or "increment" in pulses,
+        )
+
+    def _finish_repeat(self, frame: InputFrame, keyboard_consumed: bool) -> None:
+        """Do not retain gestures whose initial UI consumption was ambiguous."""
+        if self._repeat is None:
+            return
+        keyboard_names = {
+            "next",
+            "previous",
+            "increment",
+            "decrement",
+            "confirm",
+            "cancel",
+        }
+        if frame.pressed & self._repeat.actions and (
+            not keyboard_consumed or len(frame.pressed & keyboard_names) > 1
+        ):
+            self._repeat.reset()
+        self._track_repeat_focus()
+
     def update(
-        self, frame: InputFrame, *, reset: bool = False, scroll_step: float = 24
+        self,
+        frame: InputFrame,
+        *,
+        reset: bool = False,
+        scroll_step: float = 24,
+        dt: float | None = None,
     ) -> UIRouteResult:
+        if self._repeat is not None:
+            if dt is None:
+                raise ValueError("dt is required when UI repeat is enabled")
+            dt = _seconds(dt, "dt", zero=True)
         reset = reset or bool(frame.cancelled)
         ui = UIInput.from_frame(frame, reset=reset, scroll_step=scroll_step)
         snapshot = self.panels
@@ -130,6 +223,8 @@ class UIRouter:
                 self._pointer_owner = pointer
                 self._pointer_owned = True
                 self._active = pointer
+        keyboard_target = self._active
+        ui = self._repeat_input(frame, ui, dt, modal, reset)
         game_pointer_owned = bool(self._game_held & self.pointer_actions)
         pointer_consumed = self._pointer_owned or (
             hit is not None and not game_pointer_owned
@@ -139,7 +234,9 @@ class UIRouter:
             if panel not in self._panels:
                 continue
             owns_pointer = panel is pointer and panel in eligible
-            owns_keyboard = panel is self._active and panel in eligible
+            owns_keyboard = (
+                panel is keyboard_target and panel is self._active and panel in eligible
+            )
             routed = replace(
                 ui,
                 x=ui.x if owns_pointer or panel is hit else None,
@@ -157,6 +254,7 @@ class UIRouter:
             result = panel.update(routed)
             if owns_keyboard:
                 keyboard_consumed |= result.keyboard_consumed
+        self._finish_repeat(frame, keyboard_consumed)
         if ui.pointer_released:
             self._pointer_owned = False
             self._pointer_owner = None

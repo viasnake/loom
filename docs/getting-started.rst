@@ -571,3 +571,39 @@ fresh target machines before release, including display/audio drivers, physical
 controllers, permissions and platform-specific save paths. The probe uses a
 headless window and an explicit temporary save directory; it does not verify
 Steamworks, Steam Cloud, Steam Deck, signing or installers.
+
+
+Opt-in UI key repeat
+--------------------
+
+Long lists and sliders can repeat selected navigation actions without turning
+physical key presses into synthetic gameplay presses:
+
+.. code-block:: python
+
+   from loom import ActionRepeat, UIRouter
+
+   router = UIRouter(
+       [settings_panel],
+       repeat=ActionRepeat(
+           {"next", "previous", "decrement", "increment"},
+           delay=0.4,
+           interval=0.08,
+       ),
+   )
+   result = router.update(frame, dt=dt)
+   # Gameplay receives only physical edges, filtered by normal UI ownership.
+   game.update(result.remaining, dt)
+
+Repeat is disabled by default; enabled routers require ``dt`` in seconds.
+Each consumer owns its repeater. Only the four navigation names above are
+accepted: confirmation, purchases and pointer actions never auto-repeat.
+Repeat does not mutate ``InputFrame`` or manufacture gameplay press edges;
+normal UI ownership filtering still applies.
+
+Release, cancellation and panel/modal changes stop repeat until a fresh press.
+Slider repeat cannot carry over to another focused control. Long frames do not
+queue bursts, and ambiguous simultaneous inputs do not arm delayed operations.
+See ``ActionRepeat`` and ``UIRouter`` API contracts for exact timing and ownership
+rules. Other consumers can use ``ActionRepeat.update(frame, dt)`` to obtain
+separate pulses; that lower-level helper does not infer UI ownership.
