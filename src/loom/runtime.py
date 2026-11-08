@@ -59,6 +59,8 @@ class GameApp:
                 "next": (pyxel.KEY_TAB, pyxel.GAMEPAD1_BUTTON_DPAD_DOWN),
                 "previous": (pyxel.GAMEPAD1_BUTTON_DPAD_UP,),
                 "primary": (pyxel.MOUSE_BUTTON_LEFT,),
+                "decrement": (pyxel.KEY_LEFT, pyxel.GAMEPAD1_BUTTON_DPAD_LEFT),
+                "increment": (pyxel.KEY_RIGHT, pyxel.GAMEPAD1_BUTTON_DPAD_RIGHT),
                 "left": (pyxel.KEY_LEFT, pyxel.KEY_A, pyxel.GAMEPAD1_BUTTON_DPAD_LEFT),
                 "right": (
                     pyxel.KEY_RIGHT,

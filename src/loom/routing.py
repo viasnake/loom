@@ -47,6 +47,8 @@ class UIRouter:
             "cancel",
             "next",
             "previous",
+            "decrement",
+            "increment",
         }
         if self.pointer_actions & self.navigation_actions:
             raise ValueError("pointer and navigation action groups must be disjoint")
@@ -99,6 +101,14 @@ class UIRouter:
         snapshot = self.panels
         modal = self._modal()
         eligible = snapshot[snapshot.index(modal) :] if modal is not None else snapshot
+        # A resynchronized up snapshot must stop a drag before dispatch, not
+        # after its coordinates have already changed the control value.
+        pointer_up = "primary" not in frame.held | frame.pressed | frame.released
+        if pointer_up and self._pointer_owned:
+            if self._pointer_owner is not None:
+                self._pointer_owner.reset_input()
+            self._pointer_owner = None
+            self._pointer_owned = False
         if reset or (
             self._pointer_owner is not None and self._pointer_owner not in eligible
         ):
@@ -135,6 +145,8 @@ class UIRouter:
                 pointer_released=ui.pointer_released and owns_pointer,
                 scroll_y=ui.scroll_y if panel is hit else 0,
                 confirm=ui.confirm and owns_keyboard,
+                decrement=ui.decrement and owns_keyboard,
+                increment=ui.increment and owns_keyboard,
                 cancel=ui.cancel and owns_keyboard,
                 next_focus=ui.next_focus and owns_keyboard,
                 previous_focus=ui.previous_focus and owns_keyboard,

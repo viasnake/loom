@@ -7,7 +7,7 @@ from .runtime import GameApp
 from .display import DisplayConfig, Viewport
 from .palette import Palette
 from .text import FontCatalog
-from .ui import Button, Column, Label, Theme, Typography, UIInput
+from .ui import Button, Column, Label, Slider, Toggle, Theme, Typography, UIInput
 from .storage import SaveStore
 from .canvas import PyxelCanvas
 from .routing import UIRouter, UIRouteResult
@@ -25,6 +25,8 @@ __all__ = [
     "Button",
     "Column",
     "Label",
+    "Slider",
+    "Toggle",
     "Theme",
     "Typography",
     "UIInput",
