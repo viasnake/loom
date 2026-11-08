@@ -578,6 +578,25 @@ headless window and an explicit temporary save directory; it does not verify
 Steamworks, Steam Cloud, Steam Deck, signing or installers.
 
 
+Rendered-pixel picking
+----------------------
+
+``Viewport.to_local`` / ``to_output`` remain continuous geometric transforms.
+For interaction with actual displayed pixels, use ``display.pick(x, y)`` instead:
+Pyxel's fractional-scale rasterization rounds and accumulates float32 samples,
+so a geometric letterbox edge need not coincide with a painted pixel edge.
+``GameApp`` now supplies this discrete source-pixel pair in
+``InputFrame.world_pointer`` for both integer and fit scaling. This replaces
+fractional surface coordinates; use the viewport explicitly for continuous
+geometry. Camera conversion still follows surface picking as a separate step.
+
+Picking returns ``None`` outside the output or painted world coverage. Fractional
+output coordinates select their containing pixel. The pinned Pyxel 3.0 sampling
+model uses two compact integer arrays built only at resize, O(output width +
+height) work/storage, with O(1) lookup and no per-frame scan. It assumes normal
+compositing state without external screen camera, clipping or dithering changes.
+
+
 Opt-in UI key repeat
 --------------------
 
@@ -644,22 +663,3 @@ rotation, automatic smoothing or physics. Gameplay picking must also respect
 restores its own nested offsets on exit, even on exceptions. Do not mix raw ``camera()`` calls or
 other wrappers on its target, or move the camera inside a scope. After replacing
 ``display.world``, resize the camera and create a wrapper for the new image.
-
-
-Rendered-pixel picking
-----------------------
-
-``Viewport.to_local`` / ``to_output`` remain continuous geometric transforms.
-For interaction with actual displayed pixels, use ``display.pick(x, y)`` instead:
-Pyxel's fractional-scale rasterization rounds and accumulates float32 samples,
-so a geometric letterbox edge need not coincide with a painted pixel edge.
-``GameApp`` now supplies this discrete source-pixel pair in
-``InputFrame.world_pointer`` for both integer and fit scaling. This replaces
-fractional surface coordinates; use the viewport explicitly for continuous
-geometry. Camera conversion still follows surface picking as a separate step.
-
-Picking returns ``None`` outside the output or painted world coverage. Fractional
-output coordinates select their containing pixel. The pinned Pyxel 3.0 sampling
-model uses two compact integer arrays built only at resize, O(output width +
-height) work/storage, with O(1) lookup and no per-frame scan. It assumes normal
-compositing state without external screen camera, clipping or dithering changes.
