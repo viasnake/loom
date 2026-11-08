@@ -7,11 +7,14 @@ from types import MappingProxyType
 
 @dataclass(frozen=True, slots=True)
 class InputFrame:
+    """One update snapshot. Wheel is the backend delta, positive upward."""
+
     held: frozenset[str] = frozenset()
     pressed: frozenset[str] = frozenset()
     released: frozenset[str] = frozenset()
     pointer: tuple[float, float] = (0, 0)
     world_pointer: tuple[float, float] | None = None
+    wheel: float = 0
 
     def without(self, actions: set[str]) -> "InputFrame":
         return InputFrame(
@@ -20,6 +23,7 @@ class InputFrame:
             self.released - actions,
             self.pointer,
             self.world_pointer,
+            self.wheel,
         )
 
 
@@ -41,6 +45,7 @@ class ActionMap:
         is_down: Callable[[int], bool],
         pointer: tuple[float, float] = (0, 0),
         world_pointer: tuple[float, float] | None = None,
+        wheel: float = 0,
     ) -> InputFrame:
         # Read each physical key once even when several actions share it.
         keys = {key: bool(is_down(key)) for key in self._keys}
@@ -53,7 +58,7 @@ class ActionMap:
             self._held = held
             self._resync = False
         frame = InputFrame(
-            held, held - self._held, self._held - held, pointer, world_pointer
+            held, held - self._held, self._held - held, pointer, world_pointer, wheel
         )
         self._held = held
         return frame

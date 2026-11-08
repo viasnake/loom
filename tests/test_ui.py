@@ -340,5 +340,186 @@ class TypographyTests(unittest.TestCase):
         self.assertEqual(held, UIInput(12, 34))
 
 
+class ScrollTests(unittest.TestCase):
+    def setUp(self):
+        self.clicked = []
+        self.buttons = [
+            Button(str(i), lambda i=i: self.clicked.append(i)) for i in range(5)
+        ]
+        self.panel = Column(self.buttons, width=100, viewport_height=56)
+        self.panel.layout()
+
+    def test_scroll_clamps_and_ignores_wheel_outside(self):
+        self.panel.update(UIInput(10, 10, scroll_y=24))
+        self.assertEqual(self.panel.scroll_offset, 24)
+        self.assertEqual(self.buttons[0].rect.y, -20)
+        self.panel.update(UIInput(101, 10, scroll_y=24))
+        self.assertEqual(self.panel.scroll_offset, 24)
+        self.panel.scroll_offset = 10000
+        self.assertEqual(self.panel.scroll_offset, 68)
+        self.panel.scroll_offset = -5
+        self.assertEqual(self.panel.scroll_offset, 0)
+        self.assertEqual(self.panel.layout_count, 1)
+
+    def test_clipped_part_cannot_hover_or_activate(self):
+        # Third button begins at y=52, exactly at the inner viewport bottom.
+        self.panel.update(UIInput(10, 53, pointer_pressed=True))
+        self.panel.update(UIInput(10, 53, pointer_released=True))
+        self.assertEqual(self.clicked, [])
+        self.assertIsNone(self.panel.focused)
+        self.panel.update(UIInput(10, 30, pointer_pressed=True))
+        self.panel.update(UIInput(10, 30, pointer_released=True))
+        self.assertEqual(self.clicked, [1])
+
+    def test_scroll_cancels_click_but_owns_release(self):
+        self.panel.update(UIInput(10, 10, pointer_pressed=True))
+        self.panel.update(UIInput(10, 10, scroll_y=24))
+        result = self.panel.update(UIInput(200, 200, pointer_released=True))
+        self.assertTrue(result.pointer_consumed)
+        self.assertEqual(self.clicked, [])
+        self.assertFalse(self.panel.update(UIInput(200, 200)).pointer_consumed)
+
+    def test_tab_reveals_focus_but_idle_does_not_override_wheel(self):
+        for _ in range(3):
+            self.panel.update(UIInput(next_focus=True))
+        self.assertIs(self.panel.focused, self.buttons[2])
+        self.assertEqual(self.panel.scroll_offset, 20)
+        self.panel.update(UIInput(10, 10, scroll_y=48))
+        self.panel.update(UIInput())
+        self.assertEqual(self.panel.scroll_offset, 68)
+        self.panel.update(UIInput(previous_focus=True))
+        self.assertIs(self.panel.focused, self.buttons[1])
+        self.assertEqual(self.buttons[1].rect.y, 4)
+
+    def test_confirm_reveals_focus_after_manual_scroll(self):
+        self.panel.update(UIInput(next_focus=True))
+        self.panel.update(UIInput(10, 10, scroll_y=68))
+        self.panel.update(UIInput())
+        self.assertEqual(self.panel.scroll_offset, 68)
+        self.panel.update(UIInput(confirm=True))
+        self.assertEqual(self.panel.scroll_offset, 0)
+        self.assertEqual(self.clicked, [0])
+
+    def test_oversized_focus_aligns_top(self):
+        self.buttons[1].height = 80
+        self.panel.update(UIInput(previous_focus=True))
+        self.panel.update(UIInput(next_focus=True))
+        self.panel.update(UIInput(next_focus=True))
+        self.assertIs(self.panel.focused, self.buttons[1])
+        self.assertEqual(self.buttons[1].rect.y, 4)
+
+    def test_remove_and_hide_clamp_offset(self):
+        self.panel.scroll_offset = 1000
+        for button in self.buttons[2:]:
+            self.panel.remove(button)
+        self.assertEqual(self.panel.scroll_offset, 0)
+        self.assertEqual(self.panel.rect.height, 56)
+        self.buttons[1].visible = False
+        self.panel.layout()
+        self.assertEqual(self.panel.scroll_offset, 0)
+
+    def test_finite_panel_requires_managed_clip(self):
+        canvas = RecordingCanvas()
+        with self.assertRaisesRegex(TypeError, "ClippingCanvas"):
+            self.panel.draw(canvas)
+        self.assertEqual(canvas.calls, [])
+
+    def test_draw_culls_outside_and_closes_clip_on_exception(self):
+        from contextlib import contextmanager
+
+        class ClipCanvas(RecordingCanvas):
+            active = False
+
+            @contextmanager
+            def clipped(self, rect):
+                self.active = True
+                self.clip_rect = rect
+                try:
+                    yield
+                finally:
+                    self.active = False
+
+        canvas = ClipCanvas()
+        self.panel.draw(canvas)
+        self.assertEqual(canvas.clip_rect, Rect(4, 4, 92, 48))
+        self.assertEqual(
+            [call[1][2] for call in canvas.calls if call[0] == "text"], ["0", "1"]
+        )
+        self.assertFalse(canvas.active)
+
+        def fail(*args, **kwargs):
+            raise RuntimeError("draw")
+
+        self.buttons[0].draw = fail
+        with self.assertRaises(RuntimeError):
+            self.panel.draw(canvas)
+        self.assertFalse(canvas.active)
+
+    def test_font_shrink_clamps_offset(self):
+        fonts = FontCatalog()
+        fonts.register("body", line_height=30)
+        panel = Column(
+            [Label("A"), Label("B")],
+            viewport_height=40,
+            typography=Typography(fonts, "body"),
+        )
+        panel.scroll_offset = 1000
+        self.assertEqual(panel.scroll_offset, 32)
+        fonts.register("body", line_height=6)
+        self.assertEqual(panel.scroll_offset, 0)
+
+    def test_wheel_bridge_direction_rounding_and_step_validation(self):
+        frame = InputFrame(wheel=-1)
+        self.assertEqual(UIInput.from_frame(frame).scroll_y, 24)
+        self.assertEqual(
+            UIInput.from_frame(InputFrame(wheel=0.5), scroll_step=20).scroll_y, -10
+        )
+        for step in (0, -1, float("nan"), float("inf")):
+            with self.assertRaises(ValueError):
+                UIInput.from_frame(frame, scroll_step=step)
+
+    def test_viewport_validation(self):
+        for height in (True, False, 40.5, 40.0):
+            with self.assertRaises(TypeError):
+                Column(viewport_height=height)
+        with self.assertRaises(ValueError):
+            Column(viewport_height=8)
+        with self.assertRaises(ValueError):
+            self.panel.configure(padding=28)
+        with self.assertRaises(TypeError):
+            self.panel.scroll_offset = 1.5
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class ScrollBoundaryTests(unittest.TestCase):
+    def test_inner_right_and_bottom_edges_are_excluded(self):
+        clicked = []
+        panel = Column(
+            [Button("Tall", lambda: clicked.append(True), height=40)],
+            width=100,
+            viewport_height=30,
+            padding=4,
+        )
+        for x, y in ((96, 10), (10, 26)):
+            panel.update(UIInput(x, y, pointer_pressed=True))
+            panel.update(UIInput(x, y, pointer_released=True))
+        self.assertEqual(clicked, [])
+        panel.update(UIInput(95, 25, pointer_pressed=True))
+        panel.update(UIInput(95, 25, pointer_released=True))
+        self.assertEqual(clicked, [True])
+
+    def test_programmatic_scroll_cancels_click_but_owns_release(self):
+        clicked = []
+        panel = Column(
+            [Button(str(i), lambda i=i: clicked.append(i)) for i in range(10)],
+            viewport_height=40,
+        )
+        panel.update(UIInput(6, 6, pointer_pressed=True))
+        panel.scroll_offset = 24
+        released = panel.update(UIInput(999, 999, pointer_released=True))
+        self.assertTrue(released.pointer_consumed)
+        self.assertEqual(clicked, [])
+        self.assertFalse(panel.update(UIInput(999, 999)).pointer_consumed)

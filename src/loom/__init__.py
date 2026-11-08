@@ -9,6 +9,7 @@ from .palette import Palette
 from .text import FontCatalog
 from .ui import Button, Column, Label, Theme, Typography, UIInput
 from .storage import SaveStore
+from .canvas import PyxelCanvas
 
 __all__ = [
     "Scene",
@@ -27,4 +28,5 @@ __all__ = [
     "Typography",
     "UIInput",
     "SaveStore",
+    "PyxelCanvas",
 ]
