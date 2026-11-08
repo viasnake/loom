@@ -115,18 +115,9 @@ Items taller than the viewport align to its top.
 ``InputFrame.wheel`` is the backend delta, positive upward.
 ``UIInput.from_frame(frame, scroll_step=24)`` converts it to UI pixels. Wheel
 input is handled only over the panel and is consumed there even at its ends.
-When ``result.pointer_consumed`` is true, do not also feed the pointer gesture
-or wheel to the game. With the standard action names, for example:
-
-.. code-block:: python
-
-   from dataclasses import replace
-
-   if result.pointer_consumed:
-       frame = replace(frame.without({"primary"}), wheel=0)
-
-``without()`` removes named actions, not wheel data. A modal screen can instead
-withhold the whole frame from gameplay.
+For UI over gameplay, use ``UIRouter`` below rather than hand-filtering each
+frame. ``without()`` only removes named actions; it cannot track a gesture's
+owner across frames or infer aliases of the same physical key.
 
 Scrolling cancels click activation but retains ownership of an ongoing pointer
 gesture until release, preventing a click on content newly moved underneath it.
@@ -140,6 +131,41 @@ does not change its hit area. Keep interactive panels within that outer area.
 
 Run ``python examples/scroll.py`` for a 30-item stage list. This is vertical
 scrolling, not nested UI, horizontal scrolling or large-list virtualization.
+
+Routing UI and game input
+-------------------------
+
+.. code-block:: python
+
+   from loom import UIRouter
+
+   router = UIRouter(
+       [hud, inventory],  # back to front
+       pointer_actions={"fire"},
+   )
+   result = router.update(frame)
+   game.update(result.remaining)
+   router.draw(canvas)
+
+Only the frontmost hit panel receives a pointer gesture, and one active panel
+receives navigation keys. Register aliases such as ``fire`` when they share
+UI controls; built-in UI names are always included. These arguments add aliases
+to logical action groups, not physical-key guesses.
+``navigation_actions`` can similarly include game aliases of confirm/navigation.
+
+A UI-owned action stays blocked through release, even outside the panel or
+after its removal. Ordinary hover does not steal a release from a game-owned
+action. A modal panel interrupts gameplay: held game actions receive one
+cancellation release, and holding them through modal closure does not restart
+them. Opening or closing a modal in a callback consumes that frame too.
+
+Use ``router.update(frame, reset=True)`` on explicit focus loss together with
+``ActionMap.reset()``. OS focus detection is not automatic. Pointer coordinates
+remain observational data; coordinate-driven gameplay must respect
+``result.pointer_consumed``. Wheel is routed per frame under the pointer,
+separately from button capture.
+
+``add()``, ``remove()`` and ``bring_to_front()`` manage top-level panels.
 
 Saving
 ------
