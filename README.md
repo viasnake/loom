@@ -21,12 +21,12 @@ Tab/D-pad and Enter/A; Escape/B returns. Progress is written only by Save.
 
 ```sh
 python -m unittest discover -s tests -v
-python tools/smoke.py
-python tools/runtime_smoke.py
 python tools/benchmark.py
 ```
 
-Smoke tests use native headless Pyxel, not a physical display.
+Tests cover lifecycle cleanup, UI input ownership, save corruption and migration,
+and pixel-exact scaling. Native runtime tests verify deferred resize and cleanup
+before process exit in an isolated process; they do not test a physical display.
 
 ## Documentation
 
