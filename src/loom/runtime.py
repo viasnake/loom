@@ -1,5 +1,7 @@
 """The optional Pyxel boundary. Pure game rules need not import Pyxel."""
 
+from collections.abc import Iterable, Mapping
+
 from .app import Scene, SceneStack
 from .input import ActionMap
 from .display import DisplayConfig, PyxelDisplay
@@ -24,7 +26,9 @@ class GameApp:
             raise ValueError("fps must be an integer between 1 and 240")
         self.title, self.initial_scene = title, initial_scene
         self.config = display or DisplayConfig()
-        self.fps, self.bindings = fps, bindings
+        self.fps = fps
+        self.bindings = None if bindings is None else ActionMap(bindings).bindings
+        self._bindings_request = None
         self._resize_request = None
         self._quit_requested = False
 
@@ -35,6 +39,15 @@ class GameApp:
     def request_display(self, config: DisplayConfig) -> None:
         """Queue a render-resolution change; the latest request wins."""
         self._resize_request = config
+
+    def request_bindings(self, bindings: Mapping[str, Iterable[int]]) -> None:
+        """Queue a validated, copied full action map; latest request wins.
+
+        Applied after the current scene update, or before the first sample when
+        requested before run. Existing held actions are cancelled on the next
+        sample; new bindings held at application wait for release before firing.
+        """
+        self._bindings_request = ActionMap(bindings).bindings
 
     def run(self, *, headless: bool = False) -> None:
         """Initialize Pyxel and run. Native quit may terminate the process."""
@@ -69,6 +82,9 @@ class GameApp:
                 ),
             }
         )
+        if self._bindings_request is not None:
+            bindings = self._bindings_request
+            self._bindings_request = None
         self.actions = ActionMap(bindings)
         self.scenes = SceneStack(self.initial_scene, self.request_quit)
         try:
@@ -103,6 +119,10 @@ class GameApp:
             self.scenes.close()
             pyxel.quit()
             return
+        if self._bindings_request is not None:
+            self.actions.replace_bindings(self._bindings_request)
+            self.bindings = self.actions.bindings
+            self._bindings_request = None
         if self._resize_request is not None:
             self.display.resize(self._resize_request)
             self.config = self._resize_request

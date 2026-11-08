@@ -301,3 +301,15 @@ class SettingsTests(unittest.TestCase):
             self.assertAlmostEqual(slider.value, expected)
             slider.value = value - 1e-8
             self.assertAlmostEqual(slider.value, expected - 0.1)
+
+    def test_rebind_cancellation_does_not_confirm_captured_toggle(self):
+        toggle = Toggle("Sound")
+        panel = Column([toggle])
+        panel.update(UIInput(10, 10, pointer_pressed=True))
+        frame = InputFrame(
+            released=frozenset({"primary"}),
+            cancelled=frozenset({"primary"}),
+            pointer=(10, 10),
+        )
+        panel.update(UIInput.from_frame(frame))
+        self.assertFalse(toggle.checked)

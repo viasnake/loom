@@ -181,3 +181,57 @@ class RuntimeFailureTests(unittest.TestCase):
                 self.assertEqual(calls, expected)
                 app.scenes.close()
                 self.assertEqual(calls, expected)
+
+
+class RebindingTests(unittest.TestCase):
+    def test_request_is_copied_and_applied_after_current_update(self):
+        app, scene, engine = RuntimeTests().make_app()
+        app.actions = ActionMap({"old": (1,)})
+        down = {1, 2}
+        engine.btn = lambda key: key in down
+        seen = []
+
+        def update(frame, dt):
+            seen.append(frame)
+            if len(seen) == 1:
+                requested = {"new": [2]}
+                app.request_bindings(requested)
+                requested["new"].append(3)
+                self.assertEqual(app.actions.bindings, {"old": (1,)})
+
+        scene.update = update
+        with patch.dict(sys.modules, {"pyxel": engine}):
+            app._update()
+            self.assertEqual(seen[0].pressed, {"old"})
+            self.assertEqual(app.actions.bindings, {"new": (2,)})
+            app._update()
+            self.assertEqual(seen[1].released, {"old"})
+            self.assertFalse(seen[1].held)
+            down.clear()
+            app._update()
+            down.add(2)
+            app._update()
+            self.assertEqual(seen[-1].pressed, {"new"})
+
+    def test_invalid_request_does_not_replace_pending_valid_request(self):
+        app, scene, engine = RuntimeTests().make_app()
+        app.request_bindings({"new": (2,)})
+        with self.assertRaises((TypeError, ValueError)):
+            app.request_bindings({"new": (True,)})
+        with patch.dict(sys.modules, {"pyxel": engine}):
+            app._update()
+        self.assertEqual(app.actions.bindings, {"new": (2,)})
+
+    def test_latest_request_can_disable_all_actions(self):
+        app, scene, engine = RuntimeTests().make_app()
+        app.request_bindings({"new": (2,)})
+        app.request_bindings({})
+        with patch.dict(sys.modules, {"pyxel": engine}):
+            app._update()
+        self.assertEqual(app.actions.bindings, {})
+
+    def test_constructor_copies_caller_bindings(self):
+        bindings = {"fire": [1]}
+        app = GameApp("test", Probe(), bindings=bindings)
+        bindings["fire"].append(2)
+        self.assertEqual(app.bindings, {"fire": (1,)})

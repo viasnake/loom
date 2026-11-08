@@ -249,3 +249,35 @@ class SettingsRoutingTests(unittest.TestCase):
         value = slider.value
         router.update(frame(pointer=(500, 10)))
         self.assertEqual(slider.value, value)
+
+
+class RebindingRoutingTests(unittest.TestCase):
+    def test_rebinding_cancels_button_capture_without_activation(self):
+        from loom.input import ActionMap
+
+        clicks = []
+        panel = Column([Button("Apply", lambda: clicks.append(True))])
+        router = UIRouter([panel])
+        actions = ActionMap({"primary": [1]})
+        router.update(actions.sample(lambda key: True, pointer=(10, 10)))
+        actions.replace_bindings({"primary": [2]})
+        result = router.update(actions.sample(lambda key: True, pointer=(10, 10)))
+        self.assertFalse(clicks)
+        self.assertFalse(result.remaining.pressed)
+        router.update(actions.sample(lambda key: False, pointer=(10, 10)))
+        router.update(actions.sample(lambda key: True, pointer=(10, 10)))
+        router.update(actions.sample(lambda key: False, pointer=(10, 10)))
+        self.assertEqual(clicks, [True])
+
+    def test_rebinding_cancels_slider_before_pointer_value_changes(self):
+        from loom.input import ActionMap
+        from loom.ui import Slider
+
+        slider = Slider("Volume")
+        router = UIRouter([Column([slider])])
+        actions = ActionMap({"primary": [1]})
+        router.update(actions.sample(lambda key: True, pointer=(30, 10)))
+        value = slider.value
+        actions.replace_bindings({"primary": [2]})
+        router.update(actions.sample(lambda key: True, pointer=(500, 10)))
+        self.assertEqual(slider.value, value)
