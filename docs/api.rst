@@ -23,8 +23,17 @@ Input
    :undoc-members:
 
 .. autoclass:: loom.input.ActionMap
-   :members: sample, reset, replace_bindings, bindings, to_data
+   :members: sample, reset, replace_bindings, bindings, to_data, physical_held, physical_pressed
    :undoc-members:
+
+.. autoclass:: loom.controls.BindingEditor
+   :members:
+
+.. autoclass:: loom.controls.KeyCapture
+   :members:
+
+.. autoclass:: loom.controls.CaptureResult
+   :members:
 
 Display
 -------

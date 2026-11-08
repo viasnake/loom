@@ -21,6 +21,7 @@ class GameApp:
         display: DisplayConfig | None = None,
         fps: int = 60,
         bindings: dict[str, tuple[int, ...]] | None = None,
+        watched_keys: Iterable[int] = (),
     ):
         if type(fps) is not int or not 1 <= fps <= 240:
             raise ValueError("fps must be an integer between 1 and 240")
@@ -28,6 +29,7 @@ class GameApp:
         self.config = display or DisplayConfig()
         self.fps = fps
         self.bindings = None if bindings is None else ActionMap(bindings).bindings
+        self._watched_keys = ActionMap({"watched": watched_keys}).bindings["watched"]
         self._bindings_request = None
         self._resize_request = None
         self._quit_requested = False
@@ -85,7 +87,7 @@ class GameApp:
         if self._bindings_request is not None:
             bindings = self._bindings_request
             self._bindings_request = None
-        self.actions = ActionMap(bindings)
+        self.actions = ActionMap(bindings, watched_keys=self._watched_keys)
         self.scenes = SceneStack(self.initial_scene, self.request_quit)
         try:
             pyxel.run(self._update, self._draw)

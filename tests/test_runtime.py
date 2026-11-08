@@ -235,3 +235,37 @@ class RebindingTests(unittest.TestCase):
         app = GameApp("test", Probe(), bindings=bindings)
         bindings["fire"].append(2)
         self.assertEqual(app.bindings, {"fire": (1,)})
+
+    def test_watched_keys_and_pre_run_request_reach_first_sample(self):
+        observed = []
+        polled = []
+
+        class CaptureScene(Scene):
+            def update(self, frame, dt):
+                observed.append((frame, app.actions.physical_held))
+
+        def down(key):
+            polled.append(key)
+            return True
+
+        engine = SimpleNamespace(
+            KEY_NONE=0,
+            init=lambda *args, **kwargs: None,
+            mouse=lambda visible: None,
+            mouse_wheel=0,
+            mouse_x=0,
+            mouse_y=0,
+            btn=down,
+            Image=lambda width, height: (width, height),
+            run=lambda update, draw: update(),
+        )
+        app = GameApp(
+            "capture", CaptureScene(), bindings={"old": [1]}, watched_keys=[2, 3]
+        )
+        app.request_bindings({"new": [2]})
+        with patch.dict(sys.modules, {"pyxel": engine}):
+            app.run(headless=True)
+        self.assertEqual(polled, [2, 3])
+        frame, physical = observed[0]
+        self.assertEqual(frame.pressed, {"new"})
+        self.assertEqual(physical, {2, 3})
