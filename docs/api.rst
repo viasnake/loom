@@ -138,6 +138,12 @@ Colors and text
    :members: register, measure, wrap, draw, clear_cache
    :undoc-members:
 
+Resource files
+--------------
+
+.. autoclass:: loom.assets.AssetStore
+   :members:
+
 Storage
 -------
 

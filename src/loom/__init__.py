@@ -2,6 +2,7 @@
 
 from .app import Scene, SceneStack
 from .input import ActionMap, InputFrame
+from .assets import AssetStore
 from .audio import AudioMixer, Voice
 from .timing import Timeline, Timer, Tween, linear, smoothstep, ease_out_cubic
 from .controls import BindingEditor, CaptureResult, KeyCapture
@@ -20,6 +21,7 @@ __all__ = [
     "SceneStack",
     "ActionMap",
     "InputFrame",
+    "AssetStore",
     "AudioMixer",
     "Voice",
     "Timeline",
