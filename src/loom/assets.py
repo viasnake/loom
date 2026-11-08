@@ -64,19 +64,28 @@ class AssetStore:
     ) -> "AssetStore":
         parts = _parts(directory, allow_empty=True)
         root = resources.files(package)
-        if isinstance(root, Path):
-            package_root = root.resolve(strict=True)
-            root = _within(root.joinpath(*parts), package_root)
-        elif isinstance(root, ZipPath):
-            if parts:
-                root = root.joinpath(*parts)
-        else:
-            raise TypeError("only standard directory and zip packages are supported")
-        if not root.is_dir():
-            raise NotADirectoryError(str(root))
-        store = cls.__new__(cls)
-        store._initialize(root)
-        return store
+        with ExitStack() as pending:
+            # files() opens a zip archive for this resource tree. Own that file
+            # handle explicitly: callers/mocks can retain descendant ZipPaths.
+            # Register first so extracted files are cleaned before archive close.
+            if isinstance(root, ZipPath):
+                pending.callback(root.root.close)
+            if isinstance(root, Path):
+                package_root = root.resolve(strict=True)
+                root = _within(root.joinpath(*parts), package_root)
+            elif isinstance(root, ZipPath):
+                if parts:
+                    root = root.joinpath(*parts)
+            else:
+                raise TypeError(
+                    "only standard directory and zip packages are supported"
+                )
+            if not root.is_dir():
+                raise NotADirectoryError(str(root))
+            store = cls.__new__(cls)
+            store._initialize(root)
+            store._stack = pending.pop_all()
+            return store
 
     @property
     def closed(self) -> bool:

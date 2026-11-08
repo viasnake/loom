@@ -14,7 +14,7 @@ class AssetsTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.base = Path(self.temp.name)
+        self.base = Path(self.temp.name).resolve()
         self.root = self.base / "assets"
         self.root.mkdir()
         (self.root / "nested").mkdir()
@@ -181,3 +181,48 @@ class AssetsTests(unittest.TestCase):
             path = store.path("text.txt")
             self.assertEqual(path.read_text(), "zip hello")
         self.assertFalse(path.exists())
+
+    def test_close_closes_archive_even_with_retained_zip_paths(self):
+        package = self._zip_package()
+        store = AssetStore.from_package(package, "data")
+        retained = store._root.joinpath("text.txt")
+        archive = retained.root
+        extracted = store.path("text.txt")
+        self.assertIsNotNone(archive.fp)
+        store.close()
+        self.assertIsNone(archive.fp)
+        self.assertFalse(extracted.exists())
+        self.assertIs(retained.root, archive)
+
+    def test_failed_package_directory_validation_closes_archive(self):
+        package = self._zip_package()
+        from importlib import resources
+
+        root = resources.files(package)
+        archive = root.root
+        with patch("loom.assets.resources.files", return_value=root):
+            with self.assertRaises(NotADirectoryError):
+                AssetStore.from_package(package, "data/text.txt")
+        self.assertIsNone(archive.fp)
+
+    def test_failed_extraction_retained_mock_paths_do_not_leak_archive(self):
+        package = self._zip_package()
+        store = AssetStore.from_package(package, "data")
+        archive = store._root.root
+        with patch(
+            "loom.assets.resources.as_file", side_effect=OSError("extract")
+        ) as materialize:
+            with self.assertRaises(OSError):
+                store.path("text.txt")
+            retained = materialize.call_args.args[0]
+            store.close()
+            self.assertIsNone(archive.fp)
+            self.assertIs(retained.root, archive)
+
+    def test_two_package_stores_own_independent_archives(self):
+        package = self._zip_package()
+        with AssetStore.from_package(package, "data") as second:
+            first = AssetStore.from_package(package, "data")
+            self.assertIsNot(first._root.root, second._root.root)
+            first.close()
+            self.assertEqual(second.path("text.txt").read_text(), "zip hello")
