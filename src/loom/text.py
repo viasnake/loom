@@ -15,6 +15,7 @@ class FontCatalog:
         self.max_entries = max_entries
         self._fonts: dict[str, tuple[Any, int]] = {"default": (None, 6)}
         self._cache: OrderedDict[tuple, Any] = OrderedDict()
+        self._revision = 0
 
     def register(self, name: str, font: Any = None, *, line_height: int = 6) -> None:
         if not isinstance(name, str) or not name.strip():
@@ -24,7 +25,13 @@ class FontCatalog:
         if font is not None and not callable(getattr(font, "text_width", None)):
             raise TypeError("font must provide text_width")
         self._fonts[name] = (font, line_height)
+        self._revision += 1
         self._cache.clear()
+
+    @property
+    def revision(self) -> int:
+        """Changes when font registrations change, not when caches are cleared."""
+        return self._revision
 
     @property
     def cache_size(self) -> int:

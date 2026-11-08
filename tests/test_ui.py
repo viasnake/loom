@@ -1,6 +1,8 @@
 import unittest
 
-from loom.ui import Button, Column, Label, Rect, Theme, UIInput
+from loom.ui import Button, Column, Label, Rect, Theme, Typography, UIInput
+from loom.input import InputFrame
+from loom.text import FontCatalog
 
 
 class RecordingCanvas:
@@ -203,6 +205,139 @@ class UITests(unittest.TestCase):
             self.a.height = 0
         with self.assertRaises(ValueError):
             self.panel.configure(gap=-1)
+
+
+class TypographyTests(unittest.TestCase):
+    def setUp(self):
+        self.fonts = FontCatalog()
+        self.face = type("Face", (), {"text_width": lambda self, s: len(s) * 18})()
+        self.fonts.register("body", self.face, line_height=18)
+        self.typography = Typography(self.fonts, font="body")
+
+    def test_auto_heights_match_font_and_multiline(self):
+        label = Label("日本語\n設定")
+        button = Button("始める", lambda: None)
+        panel = Column([label, button], typography=self.typography)
+        panel.layout()
+        self.assertEqual(label.rect.height, 36)
+        self.assertEqual(button.rect.height, 26)
+        # Hit-testing uses measured geometry before any draw call.
+        result = panel.update(
+            UIInput(button.rect.x + 1, button.rect.y + 24, pointer_pressed=True)
+        )
+        self.assertTrue(result.pointer_consumed)
+        self.assertIs(panel.focused, button)
+
+    def test_expanded_button_bottom_activates_but_outside_does_not(self):
+        clicked = []
+        button = Button("開始", lambda: clicked.append(True))
+        panel = Column([button], typography=self.typography)
+        panel.layout()
+        x, y = button.rect.x + 1, button.rect.y + 24
+        panel.update(UIInput(x, y, pointer_pressed=True))
+        panel.update(UIInput(x, y, pointer_released=True))
+        self.assertEqual(clicked, [True])
+        bottom = button.rect.y + button.rect.height
+        panel.update(UIInput(x, bottom, pointer_pressed=True))
+        panel.update(UIInput(x, bottom, pointer_released=True))
+        self.assertEqual(clicked, [True])
+
+    def test_replacing_catalog_with_same_revision_relayouts(self):
+        label = Label("日本語")
+        panel = Column([label], typography=self.typography)
+        panel.layout()
+        other = FontCatalog()
+        other.register("body", self.face, line_height=24)
+        self.assertEqual(other.revision, self.fonts.revision)
+        panel.typography = Typography(other, font="body")
+        panel.layout()
+        self.assertEqual(label.rect.height, 24)
+        self.assertEqual(panel.layout_count, 2)
+
+    def test_minimum_height_button_centers_default_font(self):
+        canvas = RecordingCanvas()
+        button = Button("B", lambda: None)
+        panel = Column([button])
+        panel.draw(canvas)
+        self.assertIn(("text", (8, 11, "B", 7)), canvas.calls)
+
+    def test_explicit_height_is_not_enlarged(self):
+        label = Label("日本語", height=2)
+        panel = Column([label], typography=self.typography)
+        panel.layout()
+        self.assertEqual(label.rect.height, 2)
+        label.height = None
+        panel.layout()
+        self.assertEqual(label.rect.height, 18)
+
+    def test_text_and_registration_invalidate_once(self):
+        label = Label("")
+        panel = Column([label], typography=self.typography)
+        panel.layout()
+        self.assertEqual(label.rect.height, 18)
+        panel.layout()
+        self.assertEqual(panel.layout_count, 1)
+        label.text = "一\n二"
+        panel.layout()
+        self.assertEqual(label.rect.height, 36)
+        label.text = "一\n二"
+        panel.layout()
+        self.assertEqual(panel.layout_count, 2)
+        self.fonts.register("body", self.face, line_height=22)
+        panel.layout()
+        self.assertEqual(label.rect.height, 44)
+        self.assertEqual(panel.layout_count, 3)
+        self.fonts.clear_cache()
+        panel.layout()
+        self.assertEqual(panel.layout_count, 3)
+
+    def test_typography_replacement_and_default_minimums(self):
+        label, button = Label("A"), Button("B", lambda: None)
+        panel = Column([label, button])
+        panel.layout()
+        self.assertEqual((label.rect.height, button.rect.height), (12, 20))
+        panel.typography = self.typography
+        panel.layout()
+        self.assertEqual((label.rect.height, button.rect.height), (18, 26))
+        panel.typography = None
+        panel.layout()
+        self.assertEqual((label.rect.height, button.rect.height), (12, 20))
+
+    def test_draw_uses_registered_font_and_line_spacing(self):
+        class FontCanvas(RecordingCanvas):
+            def text(self, *args, font=None):
+                self.calls.append(("text", args, font))
+
+        canvas = FontCanvas()
+        label = Label("廃墟\n街")
+        button = Button("開始", lambda: None)
+        panel = Column([label, button], typography=self.typography)
+        panel.draw(canvas)
+        text_calls = [call for call in canvas.calls if call[0] == "text"]
+        self.assertEqual(
+            text_calls,
+            [
+                ("text", (4, 4, "廃墟", 7), self.face),
+                ("text", (4, 22, "街", 7), self.face),
+                ("text", (8, button.rect.y + 4, "開始", 7), self.face),
+            ],
+        )
+        panel.draw(canvas)
+        self.assertEqual(panel.layout_count, 1)
+
+    def test_frame_bridge_maps_edges_not_held_or_world_pointer(self):
+        actions = frozenset({"primary", "confirm", "cancel", "next", "previous"})
+        frame = InputFrame(
+            held=actions,
+            pressed=actions,
+            released=actions,
+            pointer=(12, 34),
+            world_pointer=(1, 2),
+        )
+        ui = UIInput.from_frame(frame, reset=True)
+        self.assertEqual(ui, UIInput(12, 34, True, True, True, True, True, True, True))
+        held = UIInput.from_frame(InputFrame(held=actions, pointer=(12, 34)))
+        self.assertEqual(held, UIInput(12, 34))
 
 
 if __name__ == "__main__":

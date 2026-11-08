@@ -8,18 +8,6 @@ from loom.palette import Palette
 from loom.storage import SaveStore, AppPaths, SaveError
 
 
-def ui_frame(frame):
-    return UIInput(
-        *frame.pointer,
-        pointer_pressed="primary" in frame.pressed,
-        pointer_released="primary" in frame.released,
-        confirm="confirm" in frame.pressed,
-        next_focus="next" in frame.pressed,
-        previous_focus="previous" in frame.pressed,
-        cancel="cancel" in frame.pressed,
-    )
-
-
 class Menu(Scene):
     def enter(self, scenes):
         super().enter(scenes)
@@ -61,7 +49,7 @@ class Menu(Scene):
         )
 
     def update(self, frame, dt):
-        self.ui.update(ui_frame(frame))
+        self.ui.update(UIInput.from_frame(frame))
 
     def draw(self, display):
         display.world.cls(0)
@@ -92,7 +80,7 @@ class Pause(Scene):
         )
 
     def update(self, frame, dt):
-        self.ui.update(ui_frame(frame))
+        self.ui.update(UIInput.from_frame(frame))
 
     def draw(self, display):
         self.ui.draw(pyxel)
@@ -176,7 +164,7 @@ class Turns(Scene):
             self.message = type(e).__name__
 
     def update(self, frame, dt):
-        result = self.ui.update(ui_frame(frame))
+        result = self.ui.update(UIInput.from_frame(frame))
         if not result.keyboard_consumed and "cancel" in frame.pressed:
             self.scenes.pop()
 

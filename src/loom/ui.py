@@ -1,19 +1,58 @@
 """Small retained UI with explicit input ownership and invalidation.
 
 Coordinates are already in UI logical pixels. Convert at the display adapter,
-not inside widgets. Text uses the canvas' configured font; this module neither
+not inside widgets. Typography shares font metrics between layout and drawing. This module neither
 loads fonts nor changes the global palette.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Iterable, Protocol
+from typing import Any, Callable, Iterable, Protocol
+
+from .input import InputFrame
+from .text import FontCatalog
 
 
 class Canvas(Protocol):
     def rect(self, x: int, y: int, w: int, h: int, col: int) -> None: ...
     def text(self, x: int, y: int, s: str, col: int) -> None: ...
+
+
+class FontCanvas(Canvas, Protocol):
+    """Canvas accepting Pyxel's optional font keyword (e.g. Pyxel or Image)."""
+
+    def text(self, x: int, y: int, s: str, col: int, *, font: Any = None) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class Typography:
+    """Shared font selection for a panel's measurement and drawing.
+
+    line_height in the catalog must fit the chosen font. No wrapping or clipping
+    is implicit; an explicit widget height is respected even if text overflows.
+    """
+
+    fonts: FontCatalog
+    font: str = "default"
+
+    def measure(self, text: str) -> tuple[int, int]:
+        return self.fonts.measure(text, self.font)
+
+
+class _TextCanvas:
+    """Adapt only text; rectangles remain in the same logical coordinates."""
+
+    def __init__(self, canvas: Canvas, typography: Typography):
+        self.canvas = canvas
+        self.typography = typography
+
+    def rect(self, x: int, y: int, w: int, h: int, col: int) -> None:
+        self.canvas.rect(x, y, w, h, col)
+
+    def text(self, x: int, y: int, s: str, col: int) -> None:
+        t = self.typography
+        t.fonts.draw(self.canvas, x, y, s, col, t.font)
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +96,25 @@ class UIInput:
     cancel: bool = False
     reset: bool = False
 
+    @classmethod
+    def from_frame(cls, frame: InputFrame, *, reset: bool = False) -> UIInput:
+        """Map standard action edges, using UI rather than world coordinates.
+
+        Physical bindings belong in ActionMap. Held actions never repeat here.
+        Consumption remains explicit through UIResult and InputFrame.without.
+        """
+        return cls(
+            x=frame.pointer[0],
+            y=frame.pointer[1],
+            pointer_pressed="primary" in frame.pressed,
+            pointer_released="primary" in frame.released,
+            confirm="confirm" in frame.pressed,
+            next_focus="next" in frame.pressed,
+            previous_focus="previous" in frame.pressed,
+            cancel="cancel" in frame.pressed,
+            reset=reset,
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class UIResult:
@@ -70,12 +128,18 @@ class UIResult:
 
 
 class Widget:
-    """A widget belongs to at most one Column. Height/visibility invalidate layout."""
+    """A widget belongs to at most one Column; changes invalidate its layout.
+
+    None height asks the widget to size itself. Explicit heights are respected,
+    even if text overflows. rect.height is the resolved layout height.
+    """
 
     focusable = False
 
-    def __init__(self, *, height: int, visible: bool = True, enabled: bool = True):
-        if height <= 0:
+    def __init__(
+        self, *, height: int | None, visible: bool = True, enabled: bool = True
+    ):
+        if height is not None and height <= 0:
             raise ValueError("height must be positive")
         self._height = height
         self._visible = visible
@@ -84,12 +148,12 @@ class Widget:
         self._owner: Column | None = None
 
     @property
-    def height(self) -> int:
+    def height(self) -> int | None:
         return self._height
 
     @height.setter
-    def height(self, value: int) -> None:
-        if value <= 0:
+    def height(self, value: int | None) -> None:
+        if value is not None and value <= 0:
             raise ValueError("height must be positive")
         if value != self._height:
             self._height = value
@@ -109,6 +173,9 @@ class Widget:
         if self._owner is not None:
             self._owner.invalidate()
 
+    def layout_height(self, typography: Typography | None) -> int:
+        return self.height if self.height is not None else 12
+
     def draw(
         self,
         canvas: Canvas,
@@ -121,8 +188,39 @@ class Widget:
         raise NotImplementedError
 
 
-class Label(Widget):
-    def __init__(self, text: str, *, height: int = 12, color: int | None = None):
+class _TextWidget(Widget):
+    minimum_height = 12
+    vertical_padding = 0
+
+    @property
+    def text(self) -> str:
+        return self._text
+
+    @text.setter
+    def text(self, value: str) -> None:
+        if not isinstance(value, str):
+            raise TypeError("text must be a string")
+        if value != getattr(self, "_text", None):
+            self._text = value
+            self._invalidate()
+
+    def layout_height(self, typography: Typography | None) -> int:
+        self._text_height = (
+            typography.measure(self.text)[1]
+            if typography is not None
+            else len(self.text.split("\n")) * 6
+        )
+        if self.height is not None:
+            return self.height
+        return max(self.minimum_height, self._text_height + 2 * self.vertical_padding)
+
+
+class Label(_TextWidget):
+    """Text with automatic line-box height (minimum 12); no wrapping/clipping."""
+
+    def __init__(
+        self, text: str, *, height: int | None = None, color: int | None = None
+    ):
         super().__init__(height=height)
         self.text = text
         self.color = color
@@ -136,15 +234,23 @@ class Label(Widget):
         )
 
 
-class Button(Widget):
+class Button(_TextWidget):
+    """Text button with automatic height (minimum 20) and centered line boxes.
+
+    Text has 4-pixel horizontal padding. Auto height leaves at least 4 pixels
+    above and below; explicit undersized heights draw text from the top.
+    """
+
     focusable = True
+    minimum_height = 20
+    vertical_padding = 4
 
     def __init__(
         self,
         text: str,
         on_click: Callable[[], None],
         *,
-        height: int = 20,
+        height: int | None = None,
         enabled: bool = True,
     ):
         super().__init__(height=height, enabled=enabled)
@@ -173,7 +279,10 @@ class Button(Widget):
             canvas.rect(r.x, r.y, 1, r.height, theme.focus)
             canvas.rect(r.x + r.width - 1, r.y, 1, r.height, theme.focus)
         canvas.text(
-            r.x + 4, r.y + 4, self.text, theme.text if self.enabled else theme.disabled
+            r.x + 4,
+            r.y + max(0, (r.height - getattr(self, "_text_height", 6)) // 2),
+            self.text,
+            theme.text if self.enabled else theme.disabled,
         )
 
 
@@ -184,6 +293,11 @@ class Column:
     does not transfer the click to another button. Modal panels consume all
     input, including the frame that closes them. Call reset_input on focus loss
     or scene suspension. UIInput flags must be edge events, not held keys.
+
+    With typography, the drawing target must accept Pyxel's text(..., font=)
+    keyword. Fonts are measured before input routing; changing registrations or
+    assigning typography invalidates layout automatically. Text is not clipped
+    or wrapped, so the game must choose sufficient width and explicit heights.
     """
 
     def __init__(
@@ -196,6 +310,7 @@ class Column:
         gap: int = 4,
         padding: int = 4,
         theme: Theme | None = None,
+        typography: Typography | None = None,
         modal: bool = False,
         on_cancel: Callable[[], None] | None = None,
     ):
@@ -203,6 +318,8 @@ class Column:
         self._x, self._y = x, y
         self._width, self._gap, self._padding = width, gap, padding
         self.theme = theme or Theme()
+        self.typography = typography
+        self._font_state: tuple[Typography | None, int] | None = None
         self.modal = modal
         self.on_cancel = on_cancel
         self._children: list[Widget] = []
@@ -288,6 +405,12 @@ class Column:
         self._dirty = True
 
     def layout(self) -> None:
+        font_state = (
+            self.typography,
+            self.typography.fonts.revision if self.typography is not None else 0,
+        )
+        if font_state != self._font_state:
+            self._dirty = True
         if not self._dirty:
             return
         self._visible = tuple(child for child in self._children if child.visible)
@@ -295,15 +418,17 @@ class Column:
         for index, child in enumerate(self._visible):
             if index:
                 y += self._gap
+            height = child.layout_height(self.typography)
             child.rect = Rect(
                 self._x + self._padding,
                 y,
                 self._width - 2 * self._padding,
-                child.height,
+                height,
             )
-            y += child.height
+            y += height
         self._rect = Rect(self._x, self._y, self._width, y - self._y + self._padding)
         self._dirty = False
+        self._font_state = font_state
         self.layout_count += 1
 
     def reset_input(self) -> None:
@@ -405,8 +530,15 @@ class Column:
             activate.on_click()
         return UIResult(pointer_consumed, keyboard_consumed)
 
-    def draw(self, canvas: Canvas) -> None:
+    def draw(self, canvas: Canvas | FontCanvas) -> None:
+        """Draw with the legacy Canvas, or a FontCanvas when typography is set.
+
+        Typography requires text(..., font=), as supported by Pyxel and Image.
+        Without typography a four-argument Canvas.text remains sufficient.
+        """
         self.layout()
+        if self.typography is not None:
+            canvas = _TextCanvas(canvas, self.typography)
         r = self._rect
         canvas.rect(r.x, r.y, r.width, r.height, self.theme.panel)
         for child in self._visible:
