@@ -97,6 +97,7 @@ class UIRouter:
     def update(
         self, frame: InputFrame, *, reset: bool = False, scroll_step: float = 24
     ) -> UIRouteResult:
+        reset = reset or bool(frame.cancelled)
         ui = UIInput.from_frame(frame, reset=reset, scroll_step=scroll_step)
         snapshot = self.panels
         modal = self._modal()
@@ -164,6 +165,7 @@ class UIRouter:
             self._blocked.update(frame.held | frame.pressed)
             remaining = InputFrame(
                 released=cancelled,
+                cancelled=cancelled,
                 pointer=frame.pointer,
                 world_pointer=frame.world_pointer,
             )
@@ -183,6 +185,7 @@ class UIRouter:
                 frame.pointer,
                 frame.world_pointer,
                 0 if hit is not None else frame.wheel,
+                frame.cancelled - self._blocked,
             )
         self._blocked.difference_update(frame.released)
         # Resynchronization can report an up snapshot without a release edge.

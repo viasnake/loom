@@ -214,6 +214,41 @@ frame updates. Use ``kind="settings"`` for device settings, separate from
 progress intended for cloud synchronization. Atomic replacement is not a
 universal guarantee against filesystem or power-loss failures.
 
+Rebinding and saved controls
+----------------------------
+
+``ActionMap.replace_bindings(mapping)`` replaces the complete map atomically.
+``GameApp.request_bindings(mapping)`` validates and copies the same data, then
+applies it after the current update. Before ``run()``, a request supplies the
+initial bindings. An empty map disables named actions. Unknown or unavailable
+backend key codes are not detected by Loom; choose codes for your target Pyxel
+version and devices.
+
+Changing bindings releases previously held logical actions once, marking them
+in ``InputFrame.cancelled`` as well as ``released``. Cancellation ends an action
+without committing it: ``UIRouter`` and ``UIInput.from_frame()`` reset capture
+before handling it. Custom release-to-commit gameplay must check ``cancelled``
+too. Keys already
+down under the new map are ignored until released, so confirming a settings
+choice does not also trigger gameplay. Replacing with identical bindings does
+not interrupt input. ``reset()`` does not bypass a pending rebind's suppression.
+Call the router with ``reset=True`` when switching input context as well.
+
+.. code-block:: python
+
+   controls = SaveStore.for_app("com.example.game", version=1, kind="settings")
+   controls.save({"bindings": app.actions.to_data()})
+   saved = controls.load()
+   app.request_bindings(saved["bindings"])
+
+For initial startup, catch ``FileNotFoundError`` and retain the defaults.
+``to_data()`` returns an independent JSON-compatible mapping of action names to
+key-code lists. Validate the application's settings envelope before indexing it;
+invalid bindings raise without changing the current or pending map. Saving is
+explicit, not a side effect of each key change. A game should retain a recovery
+route if the player removes all menu controls. This API does not provide a
+key-capture dialog, conflict policy or cross-backend key translation.
+
 Testing and packaging
 ---------------------
 

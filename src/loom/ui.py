@@ -112,7 +112,7 @@ class UIInput:
             next_focus="next" in frame.pressed,
             previous_focus="previous" in frame.pressed,
             cancel="cancel" in frame.pressed,
-            reset=reset,
+            reset=reset or bool(frame.cancelled),
             scroll_y=round(-frame.wheel * scroll_step),
             decrement="decrement" in frame.pressed,
             increment="increment" in frame.pressed,
