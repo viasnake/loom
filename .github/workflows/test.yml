@@ -41,6 +41,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install Linux native build dependency
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libsdl2-2.0-0
       - run: python -m pip wheel . --no-deps --wheel-dir wheelhouse
       - name: Install the wheel, not an editable checkout
         shell: python

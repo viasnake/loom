@@ -542,13 +542,21 @@ Standalone contract check
 ``tools/check_bundle.py OUTPUT`` exercises the official ``package`` then
 ``app2exe`` pipeline on the current operating system. Install a built Loom wheel
 (non-editable) and ``pyxel[app2exe]==3.0.0`` first. ``OUTPUT`` must not exist; the
-harness refuses to overwrite a previous run. It stages the installed package,
+harness refuses to overwrite a previous run. Linux builders must have SDL2
+installed before ``app2exe`` so PyInstaller can collect the shared library.
+On Ubuntu install it with ``sudo apt-get install libsdl2-2.0-0``. The harness
+requires a nonempty ``libSDL2-2.0.so.0`` inside the generated Linux artifact;
+installing it only on the host is not accepted as a passing bundle check.
+System libraries such as glibc remain target-OS dependencies.
+
+It stages the installed package,
 not ``src/``, alongside a finite test fixture, not another game sample.
 
 The generated distribution is copied to a different path and its original
 bundle and staging directories are renamed out of use. The relocated executable
 runs twice from an unrelated working directory without
-``PYTHONPATH``, ``PYTHONHOME`` or the development environment on ``PATH``. It checks
+Python environment variables, ``LD_LIBRARY_PATH``, ``LD_PRELOAD``,
+``LD_LIBRARY_PATH_ORIG``, ``LD_AUDIT`` or the development environment on ``PATH``. It checks
 frozen-runtime and extracted-game import origins, a bundled PNG pixel and its
 composited framebuffer color, scene transition
 and shutdown hooks, and SaveStore readback across the two processes. Output

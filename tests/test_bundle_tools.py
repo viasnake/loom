@@ -21,12 +21,26 @@ class BundleToolTests(unittest.TestCase):
             {
                 "PYTHONPATH": "source",
                 "PYTHONHOME": "home",
+                "PYTHONSTARTUP": "startup",
+                "LD_LIBRARY_PATH": "host-libraries",
+                "LD_LIBRARY_PATH_ORIG": "inherited-libraries",
+                "LD_PRELOAD": "host-library",
+                "LD_AUDIT": "host-audit",
                 "VIRTUAL_ENV": "venv",
                 "PATH": "development-venv",
             },
         ):
             env = bundle.probe_environment(Path("out"), Path("saves"))
-            for key in ("PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV"):
+            for key in (
+                "PYTHONPATH",
+                "PYTHONHOME",
+                "PYTHONSTARTUP",
+                "VIRTUAL_ENV",
+                "LD_LIBRARY_PATH",
+                "LD_LIBRARY_PATH_ORIG",
+                "LD_PRELOAD",
+                "LD_AUDIT",
+            ):
                 self.assertNotIn(key, env)
             self.assertNotIn("development-venv", env["PATH"])
             self.assertEqual(os.environ["PYTHONPATH"], "source")
@@ -77,3 +91,16 @@ class BundleToolTests(unittest.TestCase):
         self.assertIn(b"IHDR", data)
         self.assertIn(b"IDAT", data)
         self.assertIn(b"IEND", data)
+
+    def test_linux_bundle_requires_nonempty_sdl_library_inside_artifact(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with self.assertRaisesRegex(RuntimeError, "libsdl2-2.0-0"):
+                bundle.validate_linux_bundle(root)
+            library = root / "_internal/libSDL2-2.0.so.0"
+            library.parent.mkdir()
+            library.touch()
+            with self.assertRaises(RuntimeError):
+                bundle.validate_linux_bundle(root)
+            library.write_bytes(b"bundled SDL test fixture")
+            bundle.validate_linux_bundle(root)

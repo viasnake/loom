@@ -20,8 +20,15 @@ import zlib
 
 def probe_environment(output: Path, saves: Path) -> dict[str, str]:
     env = os.environ.copy()
-    for name in ("PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV"):
-        env.pop(name, None)
+    for name in tuple(env):
+        if name.startswith("PYTHON") or name in (
+            "VIRTUAL_ENV",
+            "LD_LIBRARY_PATH",
+            "LD_LIBRARY_PATH_ORIG",
+            "LD_PRELOAD",
+            "LD_AUDIT",
+        ):
+            env.pop(name, None)
     # The executable is launched by absolute path, never via a Python launcher.
     env["PATH"] = (
         os.environ.get("SystemRoot", "C:/Windows")
@@ -34,6 +41,22 @@ def probe_environment(output: Path, saves: Path) -> dict[str, str]:
         SDL_AUDIODRIVER="dummy",
     )
     return env
+
+
+def validate_linux_bundle(bundle: Path) -> None:
+    """Require SDL itself in the artifact, not just on the build host."""
+    root = bundle.resolve()
+    candidates = list(root.rglob("libSDL2-2.0.so.0"))
+    if not any(
+        path.is_file()
+        and path.resolve().is_relative_to(root)
+        and path.stat().st_size > 0
+        for path in candidates
+    ):
+        raise RuntimeError(
+            "Linux bundle is missing libSDL2-2.0.so.0; install SDL2 on the "
+            "build host before app2exe (Ubuntu: libsdl2-2.0-0)"
+        )
 
 
 def png_pixel() -> bytes:
@@ -122,6 +145,8 @@ def main():
     shutil.copytree(original, bundle)
     original.rename(output / "original-bundle-not-used")
     stage.rename(output / "original-stage-not-used")
+    if sys.platform.startswith("linux"):
+        validate_linux_bundle(bundle)
     executable = bundle / ("loom-probe.exe" if os.name == "nt" else "loom-probe")
     cwd = output / "unrelated-working-directory"
     cwd.mkdir()
