@@ -43,6 +43,15 @@ Display
 UI
 --
 
+.. autoclass:: loom.canvas.PyxelCanvas
+   :members: clipped, rect, text
+
+.. autoclass:: loom.geometry.Rect
+   :members: contains, intersection
+
+.. autoclass:: loom.ui.ClippingCanvas
+   :members:
+
 .. autoclass:: loom.ui.FontCanvas
    :members:
 

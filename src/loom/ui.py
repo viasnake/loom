@@ -8,8 +8,10 @@ loads fonts nor changes the global palette.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable, Protocol
+from math import isfinite
+from typing import Any, Callable, ContextManager, Iterable, Protocol
 
+from .geometry import Rect
 from .input import InputFrame
 from .text import FontCatalog
 
@@ -55,20 +57,10 @@ class _TextCanvas:
         t.fonts.draw(self.canvas, x, y, s, col, t.font)
 
 
-@dataclass(frozen=True, slots=True)
-class Rect:
-    x: int
-    y: int
-    width: int
-    height: int
+class ClippingCanvas(Canvas, Protocol):
+    """Managed clipping with intersection and restoration, including exceptions."""
 
-    def contains(self, x: float | None, y: float | None) -> bool:
-        return (
-            x is not None
-            and y is not None
-            and self.x <= x < self.x + self.width
-            and self.y <= y < self.y + self.height
-        )
+    def clipped(self, rect: Rect) -> ContextManager[None]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,14 +87,20 @@ class UIInput:
     previous_focus: bool = False
     cancel: bool = False
     reset: bool = False
+    scroll_y: int = 0  # UI pixels; positive moves content upward.
 
     @classmethod
-    def from_frame(cls, frame: InputFrame, *, reset: bool = False) -> UIInput:
+    def from_frame(
+        cls, frame: InputFrame, *, reset: bool = False, scroll_step: float = 24
+    ) -> UIInput:
         """Map standard action edges, using UI rather than world coordinates.
 
         Physical bindings belong in ActionMap. Held actions never repeat here.
         Consumption remains explicit through UIResult and InputFrame.without.
+        Wheel notches (positive up) become rounded logical pixels (positive down).
         """
+        if not isfinite(scroll_step) or scroll_step <= 0:
+            raise ValueError("scroll_step must be positive and finite")
         return cls(
             x=frame.pointer[0],
             y=frame.pointer[1],
@@ -113,6 +111,7 @@ class UIInput:
             previous_focus="previous" in frame.pressed,
             cancel="cancel" in frame.pressed,
             reset=reset,
+            scroll_y=round(-frame.wheel * scroll_step),
         )
 
 
@@ -296,8 +295,14 @@ class Column:
 
     With typography, the drawing target must accept Pyxel's text(..., font=)
     keyword. Fonts are measured before input routing; changing registrations or
-    assigning typography invalidates layout automatically. Text is not clipped
-    or wrapped, so the game must choose sufficient width and explicit heights.
+    assigning typography invalidates layout automatically. Text is not wrapped
+    or clipped to individual widgets; choose sufficient width/explicit heights.
+
+    viewport_height fixes the outer panel height at construction. Its padded
+    interior clips children. scroll_offset uses logical pixels and clamps to the
+    content range; positive UIInput.scroll_y scrolls down while over the panel.
+    Tab and confirm reveal focus (oversized widgets align at the top). Scrolling
+    cancels a pending click but retains ownership until pointer release.
     """
 
     def __init__(
@@ -311,12 +316,20 @@ class Column:
         padding: int = 4,
         theme: Theme | None = None,
         typography: Typography | None = None,
+        viewport_height: int | None = None,
         modal: bool = False,
         on_cancel: Callable[[], None] | None = None,
     ):
         self._validate(width, gap, padding)
         self._x, self._y = x, y
         self._width, self._gap, self._padding = width, gap, padding
+        if viewport_height is not None and type(viewport_height) is not int:
+            raise TypeError("viewport_height must be an integer or None")
+        if viewport_height is not None and viewport_height <= 2 * padding:
+            raise ValueError("viewport_height must exceed twice the padding")
+        self._viewport_height = viewport_height
+        self._scroll_offset = 0
+        self._content_height = 0
         self.theme = theme or Theme()
         self.typography = typography
         self._font_state: tuple[Typography | None, int] | None = None
@@ -349,6 +362,45 @@ class Column:
             )
 
     @property
+    def viewport_height(self) -> int | None:
+        return self._viewport_height
+
+    @property
+    def scroll_offset(self) -> int:
+        self.layout()
+        return self._scroll_offset
+
+    @scroll_offset.setter
+    def scroll_offset(self, value: int) -> None:
+        if type(value) is not int:
+            raise TypeError("scroll_offset must be an integer")
+        self.layout()
+        limit = max(0, self._content_height - self._rect.height)
+        value = min(max(0, value), limit)
+        delta = self._scroll_offset - value
+        if delta:
+            self._scroll_offset = value
+            for child in self._visible:
+                r = child.rect
+                child.rect = Rect(r.x, r.y + delta, r.width, r.height)
+            # Scrolling must not change the target of an in-flight click.
+            self._capture = None
+            self._hover = None
+
+    def _content_rect(self) -> Rect:
+        r, p = self._rect, self._padding
+        return Rect(r.x + p, r.y + p, r.width - 2 * p, max(0, r.height - 2 * p))
+
+    def _ensure_focus_visible(self) -> None:
+        if self._focus is None or self.viewport_height is None:
+            return
+        view, focused = self._content_rect(), self._focus.rect
+        if focused.y < view.y or focused.height > view.height:
+            self.scroll_offset += focused.y - view.y
+        elif focused.y + focused.height > view.y + view.height:
+            self.scroll_offset += focused.y + focused.height - view.y - view.height
+
+    @property
     def children(self) -> tuple[Widget, ...]:
         return tuple(self._children)
 
@@ -378,6 +430,8 @@ class Column:
             self._padding if padding is None else padding,
         )
         self._validate(*values[2:])
+        if self.viewport_height is not None and self.viewport_height <= 2 * values[4]:
+            raise ValueError("viewport_height must exceed twice the padding")
         if values != (self._x, self._y, self._width, self._gap, self._padding):
             self._x, self._y, self._width, self._gap, self._padding = values
             self.invalidate()
@@ -426,7 +480,20 @@ class Column:
                 height,
             )
             y += height
-        self._rect = Rect(self._x, self._y, self._width, y - self._y + self._padding)
+        self._content_height = y - self._y + self._padding
+        height = (
+            self.viewport_height
+            if self.viewport_height is not None
+            else self._content_height
+        )
+        self._rect = Rect(self._x, self._y, self._width, height)
+        self._scroll_offset = min(
+            self._scroll_offset, max(0, self._content_height - height)
+        )
+        if self._scroll_offset:
+            for child in self._visible:
+                r = child.rect
+                child.rect = Rect(r.x, r.y - self._scroll_offset, r.width, r.height)
         self._dirty = False
         self._font_state = font_state
         self.layout_count += 1
@@ -454,6 +521,7 @@ class Column:
         else:
             index = candidates.index(self._focus)
             self._focus = candidates[(index + direction) % len(candidates)]
+        self._ensure_focus_visible()
         return True
 
     def _pointer_activation(self, frame: UIInput, consumed: bool) -> Button | None:
@@ -472,6 +540,7 @@ class Column:
         if (
             captured is not None
             and self._eligible(captured)
+            and self._content_rect().contains(frame.x, frame.y)
             and captured.rect.contains(frame.x, frame.y)
         ):
             return captured
@@ -483,11 +552,13 @@ class Column:
             self._focus = None
         if not self._eligible(self._capture):
             self._capture = None
+        view = self._content_rect()
         self._hover = next(
             (
                 widget
                 for widget in self._visible
-                if widget.rect.contains(frame.x, frame.y)
+                if view.contains(frame.x, frame.y)
+                and widget.rect.contains(frame.x, frame.y)
             ),
             None,
         )
@@ -511,6 +582,13 @@ class Column:
                 return UIResult(pointer_consumed, True, True)
             return UIResult(pointer_consumed, keyboard_consumed)
 
+        if (
+            frame.scroll_y
+            and self.viewport_height is not None
+            and self._rect.contains(frame.x, frame.y)
+        ):
+            self.scroll_offset += frame.scroll_y
+
         if frame.next_focus or frame.previous_focus:
             direction = -1 if frame.previous_focus else 1
             if self._move_focus(direction):
@@ -518,6 +596,7 @@ class Column:
 
         activate = self._pointer_activation(frame, pointer_consumed)
         if frame.confirm and self._eligible(self._focus):
+            self._ensure_focus_visible()
             keyboard_consumed = True
             if activate is None and isinstance(self._focus, Button):
                 activate = self._focus
@@ -530,18 +609,36 @@ class Column:
             activate.on_click()
         return UIResult(pointer_consumed, keyboard_consumed)
 
-    def draw(self, canvas: Canvas | FontCanvas) -> None:
-        """Draw with the legacy Canvas, or a FontCanvas when typography is set.
+    def draw(self, canvas: Canvas | FontCanvas | ClippingCanvas) -> None:
+        """Draw a panel; finite viewports require managed ``clipped(Rect)``.
 
-        Typography requires text(..., font=), as supported by Pyxel and Image.
-        Without typography a four-argument Canvas.text remains sufficient.
+        Use PyxelCanvas for finite panels, not raw Pyxel.clip (which cannot read
+        back its prior state). Typography additionally requires text(..., font=).
+        Unbounded panels retain compatibility with four-argument Canvas.text.
         """
         self.layout()
-        if self.typography is not None:
-            canvas = _TextCanvas(canvas, self.typography)
+        if self.viewport_height is not None and not callable(
+            getattr(canvas, "clipped", None)
+        ):
+            raise TypeError("finite Column requires a ClippingCanvas; use PyxelCanvas")
         r = self._rect
         canvas.rect(r.x, r.y, r.width, r.height, self.theme.panel)
+        if self.viewport_height is None:
+            self._draw_children(canvas)
+        else:
+            with canvas.clipped(self._content_rect()):
+                self._draw_children(canvas)
+
+    def _draw_children(self, canvas: Canvas) -> None:
+        if self.typography is not None:
+            canvas = _TextCanvas(canvas, self.typography)
+        view = self._content_rect()
         for child in self._visible:
+            if self.viewport_height is not None and (
+                child.rect.y + child.rect.height <= view.y
+                or child.rect.y >= view.y + view.height
+            ):
+                continue
             child.draw(
                 canvas,
                 self.theme,

@@ -90,7 +90,10 @@ class GameApp:
 
         pointer = (pyxel.mouse_x, pyxel.mouse_y)
         frame = self.actions.sample(
-            pyxel.btn, pointer, self.display.viewport.to_local(*pointer)
+            pyxel.btn,
+            pointer,
+            self.display.viewport.to_local(*pointer),
+            pyxel.mouse_wheel,
         )
         self.scenes.update(frame, 1 / self.fps)
         if self._quit_requested:

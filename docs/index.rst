@@ -14,8 +14,8 @@ rendering and 3D physics.
 Status
 ------
 
-This is an early alpha. The UI currently provides a flat column, labels and
-buttons, not nested layouts, scrolling or text clipping. Fonts are supplied by
+This is an early alpha. The UI provides flat columns, labels and buttons, with optional vertical
+viewports. Nested layouts and automatic text wrapping are not implemented. Fonts are supplied by
 the game. Automatic OS focus handling, audio buses and asynchronous saves are
 not implemented.
 

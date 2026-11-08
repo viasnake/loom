@@ -22,6 +22,7 @@ class RuntimeTests(unittest.TestCase):
         scene = Probe()
         app = GameApp("test", scene)
         engine = SimpleNamespace(
+            mouse_wheel=0,
             mouse_x=3,
             mouse_y=1,
             btn=lambda key: False,
@@ -93,6 +94,15 @@ class RuntimeTests(unittest.TestCase):
                 app._update()
         self.assertEqual(app.display.config, previous)
 
+    def test_wheel_delta_is_sampled_without_becoming_a_key_edge(self):
+        app, scene, engine = self.make_app()
+        engine.mouse_wheel = -2
+        with patch.dict(sys.modules, {"pyxel": engine}):
+            app._update()
+        self.assertEqual(scene.last.wheel, -2)
+        self.assertEqual(scene.last.without({"primary"}).wheel, -2)
+        self.assertFalse(scene.last.pressed)
+
     def test_without_preserves_coordinates(self):
         frame = InputFrame(pressed=frozenset({"shoot"}), world_pointer=(1, 2))
         self.assertEqual(frame.without({"shoot"}).world_pointer, (1, 2))
@@ -148,6 +158,7 @@ class RuntimeFailureTests(unittest.TestCase):
                     KEY_NONE=0,
                     init=lambda *args, **kwargs: None,
                     mouse=lambda visible: None,
+                    mouse_wheel=0,
                     mouse_x=0,
                     mouse_y=0,
                     btn=lambda key: False,

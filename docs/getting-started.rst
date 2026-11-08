@@ -80,8 +80,8 @@ To use the same font for UI measurement and rendering:
 
 Default widget heights grow to fit the measured line boxes. Changing text or
 re-registering a font invalidates the layout before hit testing. An explicit
-``height`` overrides automatic sizing. Width is not wrapped or clipped: provide
-sufficient panel width and height for the content. The same typography is used
+``height`` overrides automatic sizing. Text does not wrap automatically. Unbounded panels do not clip; provide
+sufficient width and height, or use the finite viewport described below. The same typography is used
 by ``panel.draw(pyxel)``, so no custom drawing adapter is needed. Buttons center
 text vertically. Custom canvases used with typography must accept the ``font``
 keyword in ``text()``, as Pyxel and Pyxel Image do; see ``FontCanvas``.
@@ -93,6 +93,53 @@ activate it.
 
 Fonts are not bundled. Use a font whose license permits your intended use.
 Text layout does not provide IME, shaping or Japanese kinsoku rules.
+
+Scrollable panels
+-----------------
+
+.. code-block:: python
+
+   from loom import Button, Column, PyxelCanvas, UIInput
+
+   canvas = PyxelCanvas(pyxel)
+   panel = Column(buttons, width=240, viewport_height=240)
+   result = panel.update(UIInput.from_frame(frame))
+   panel.draw(canvas)
+
+``viewport_height`` is the panel's outer height, including padding. Content is
+clipped to the inner area; clipped parts cannot be clicked. ``scroll_offset``
+is an integer pixel offset clamped to the content. Tab, D-pad focus navigation
+and confirm reveal the focused item. Idle updates do not undo manual scrolling.
+Items taller than the viewport align to its top.
+
+``InputFrame.wheel`` is the backend delta, positive upward.
+``UIInput.from_frame(frame, scroll_step=24)`` converts it to UI pixels. Wheel
+input is handled only over the panel and is consumed there even at its ends.
+When ``result.pointer_consumed`` is true, do not also feed the pointer gesture
+or wheel to the game. With the standard action names, for example:
+
+.. code-block:: python
+
+   from dataclasses import replace
+
+   if result.pointer_consumed:
+       frame = replace(frame.without({"primary"}), wheel=0)
+
+``without()`` removes named actions, not wheel data. A modal screen can instead
+withhold the whole frame from gameplay.
+
+Scrolling cancels click activation but retains ownership of an ongoing pointer
+gesture until release, preventing a click on content newly moved underneath it.
+
+Finite panels require a canvas with scoped clipping. ``PyxelCanvas`` supports
+both Pyxel and Image targets. Use ``canvas.clipped(Rect(...))`` for an outer
+clip: nested clips intersect and restore on exceptions. Pyxel has no getter
+for existing clip state, so do not mix direct ``pyxel.clip()`` calls with the
+adapter. Layout/input bounds remain the panel's viewport; an outer drawing clip
+does not change its hit area. Keep interactive panels within that outer area.
+
+Run ``python examples/scroll.py`` for a 30-item stage list. This is vertical
+scrolling, not nested UI, horizontal scrolling or large-list virtualization.
 
 Saving
 ------
