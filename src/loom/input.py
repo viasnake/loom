@@ -54,6 +54,7 @@ class ActionMap:
         self._held: frozenset[str] = frozenset()
         self._resync = False
         self._rebind_pending = False
+        self._cancel_raw_pending = False
         self._cancelled: frozenset[str] = frozenset()
         self._blocked_keys: set[int] = set()
 
@@ -119,10 +120,25 @@ class ActionMap:
         if normalized == self._bindings:
             return
         self._install(normalized)
+        self._cancel_actions()
+
+    def _cancel_actions(self) -> None:
         self._cancelled |= self._held
         self._held = frozenset()
         self._rebind_pending = True
         self._resync = False
+
+    def cancel(self) -> None:
+        """Queue an explicit input interruption for the next sample.
+
+        Emit cancelled/released for prior logical held actions once, and suppress
+        all keys down at that next sample until up. Also suppress that sample's
+        physical_pressed and wheel; pointer and physical_held stay raw. Cancel an active KeyCapture
+        separately because it consumes raw held snapshots. This is not automatic
+        OS-focus detection. Repeated requests before sampling coalesce.
+        """
+        self._cancel_actions()
+        self._cancel_raw_pending = True
 
     def sample(
         self,
@@ -134,9 +150,13 @@ class ActionMap:
         # Read each physical key once even when several actions share it.
         keys = {key: bool(is_down(key)) for key in self._keys}
         physical = frozenset(key for key, down in keys.items() if down)
+        cancelling = self._cancel_raw_pending
         self._physical_pressed = (
-            frozenset() if self._resync else physical - self._physical_held
+            frozenset()
+            if self._resync or self._cancel_raw_pending
+            else physical - self._physical_held
         )
+        self._cancel_raw_pending = False
         self._physical_held = physical
         if self._rebind_pending:
             self._blocked_keys = {key for key, down in keys.items() if down}
@@ -159,7 +179,7 @@ class ActionMap:
             (self._held - held) | self._cancelled,
             pointer,
             world_pointer,
-            wheel,
+            0 if cancelling else wheel,
             self._cancelled,
         )
         self._cancelled = frozenset()
@@ -171,5 +191,6 @@ class ActionMap:
 
         Rebinding suppression remains in effect until each blocked key is up.
         """
-        self._held = frozenset()
+        # Keep the previous logical snapshot until sample so reset→cancel can
+        # still notify its consumers. Resync itself continues to emit no edges.
         self._resync = True

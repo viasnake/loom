@@ -190,8 +190,9 @@ action. A modal panel interrupts gameplay: held game actions receive one
 cancellation release, and holding them through modal closure does not restart
 them. Opening or closing a modal in a callback consumes that frame too.
 
-Use ``router.update(frame, reset=True)`` on explicit focus loss together with
-``ActionMap.reset()``. OS focus detection is not automatic. Pointer coordinates
+For application-directed input interruption, use ``app.request_input_cancel()``
+(or ``ActionMap.cancel()`` when sampling manually). OS focus detection is not
+automatic. The cancellation frame resets the router's captured gestures. Pointer coordinates
 remain observational data; coordinate-driven gameplay must respect
 ``result.pointer_consumed``. Wheel is routed per frame under the pointer,
 separately from button capture.
@@ -327,6 +328,33 @@ universal guarantee against filesystem or power-loss failures.
 
 Rebinding and saved controls
 ----------------------------
+
+Explicit input interruption
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``app.request_input_cancel()`` queues interruption before the next frame's physical
+sample. Requests made during a scene update leave the current immutable frame
+unchanged; requests made before ``run()`` suppress keys held at startup. Repeated
+requests before the next sample coalesce. For a manually driven input map, call
+``actions.cancel()`` before its next ``sample()``.
+
+Previously held logical actions are reported once in both ``released`` and
+``cancelled``. Stop their gameplay effects, but do not commit release-triggered
+attacks or clicks when the action is also cancelled. Keys down at the interruption
+sample stay suppressed until released and pressed again. ``UIRouter`` and
+``UIInput.from_frame`` already handle cancellation without committing Button or
+Slider gestures. The interruption sample also discards wheel movement and raw
+``physical_pressed`` edges. Pointer coordinates and ``physical_held`` remain raw;
+call ``KeyCapture.cancel()`` separately if a binding capture is active.
+
+``reset()`` retains its narrower resynchronization behavior: it suppresses edges,
+but does not cancel held input. Cancellation can be combined with reset or a
+binding replacement without losing its pending notification. No OS focus detector
+is provided: Pyxel 3 exposes no supported focus event API here, so the application
+must request interruption at its own pause, screen or settings boundaries.
+
+Binding replacement
+~~~~~~~~~~~~~~~~~~~
 
 ``ActionMap.replace_bindings(mapping)`` replaces the complete map atomically.
 ``GameApp.request_bindings(mapping)`` validates and copies the same data, then
