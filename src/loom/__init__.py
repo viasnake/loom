@@ -2,6 +2,7 @@
 
 from .app import Scene, SceneStack
 from .input import ActionMap, InputFrame
+from .timing import Timeline, Timer, Tween, linear, smoothstep, ease_out_cubic
 from .controls import BindingEditor, CaptureResult, KeyCapture
 
 from .runtime import GameApp
@@ -18,6 +19,12 @@ __all__ = [
     "SceneStack",
     "ActionMap",
     "InputFrame",
+    "Timeline",
+    "Timer",
+    "Tween",
+    "linear",
+    "smoothstep",
+    "ease_out_cubic",
     "BindingEditor",
     "CaptureResult",
     "KeyCapture",
