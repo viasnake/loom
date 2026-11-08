@@ -52,24 +52,6 @@ invalidated. Use ``UIInput.from_frame(frame)`` and respect the returned
 this, including a pause overlay. Call ``Column.reset_input()`` when a screen
 loses input ownership. It does not detect OS focus changes automatically.
 
-Buttons may use a game-owned image without adding a separate input system:
-
-.. code-block:: python
-
-   from loom import Button, Icon
-   from loom.geometry import Rect
-
-   weapon = Icon(sprite_sheet, Rect(0, 0, 16, 16), colkey=0)
-   select = Button("", select_weapon, icon=weapon)  # icon only
-   equip = Button("Equip", equip_weapon, icon=weapon)
-
-Draw with ``PyxelCanvas`` or an ``ImageCanvas`` supporting ``blt``. Icons retain
-native size and palette colors, even when disabled, and crop to the button's
-padded interior. Auto height includes the icon; assigning a different
-``button.icon`` invalidates layout. The game owns resource loading, image
-lifetime, optional disabled artwork and labels. No scaling or palette mutation
-is implicit. Text-only canvases remain supported for text-only buttons.
-
 ``Palette`` assigns named colors to Pyxel's shared palette of up to 256 unique
 RGB values. Apply it before loading images or GLB assets. Both render layers
 share it; rebuild Cube shading after changing the palette.
@@ -185,6 +167,28 @@ does not change its hit area. Keep interactive panels within that outer area.
 
 Run ``python examples/scroll.py`` for a 30-item stage list. This is vertical
 scrolling, not nested UI, horizontal scrolling or large-list virtualization.
+
+Button icons
+------------
+
+Buttons may use a game-owned image without adding a separate input system:
+
+.. code-block:: python
+
+   from loom import Button, Icon
+   from loom.geometry import Rect
+
+   weapon = Icon(sprite_sheet, Rect(0, 0, 16, 16), colkey=0)
+   select = Button("", select_weapon, icon=weapon)  # icon only
+   equip = Button("Equip", equip_weapon, icon=weapon)
+
+Draw with ``PyxelCanvas`` or an ``ImageCanvas`` supporting ``blt``. Icons retain
+native size and palette colors, even when disabled, and crop to the button's
+padded interior. Auto height includes the icon; assigning a different
+``button.icon`` invalidates layout. The game owns resource loading, image
+lifetime, optional disabled artwork and labels. No scaling or palette mutation
+is implicit. Text-only canvases remain supported for text-only buttons.
+
 
 Routing UI and game input
 -------------------------
