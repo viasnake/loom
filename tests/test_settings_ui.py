@@ -271,3 +271,33 @@ class SettingsTests(unittest.TestCase):
             self.assertAlmostEqual(slider.value, expected - 0.1)
             slider.value = value + 1e-8
             self.assertAlmostEqual(slider.value, expected)
+
+    def test_offset_ranges_step_both_directions_without_sticking(self):
+        for minimum, maximum in ((-1, 1), (1, 2), (0.15, 1.2)):
+            with self.subTest(minimum=minimum):
+                slider = Slider(
+                    "Offset", value=minimum, minimum=minimum, maximum=maximum, step=0.1
+                )
+                for _ in range(30):
+                    before = slider.value
+                    slider.adjust(1)
+                    self.assertTrue(slider.value > before or before == maximum)
+                self.assertEqual(slider.value, maximum)
+                for _ in range(30):
+                    before = slider.value
+                    slider.adjust(-1)
+                    self.assertTrue(slider.value < before or before == minimum)
+                self.assertEqual(slider.value, minimum)
+
+    def test_integer_bounds_must_remain_distinct_as_floats(self):
+        with self.assertRaises(ValueError):
+            Slider("Range", minimum=2**60, maximum=2**60 + 1, step=1)
+
+    def test_half_step_with_offset_uses_value_space_tolerance(self):
+        for minimum, value, expected in ((1, 1.15, 1.2), (-1, -0.85, -0.8)):
+            slider = Slider(
+                "Offset", minimum=minimum, maximum=minimum + 2, value=value, step=0.1
+            )
+            self.assertAlmostEqual(slider.value, expected)
+            slider.value = value - 1e-8
+            self.assertAlmostEqual(slider.value, expected - 0.1)

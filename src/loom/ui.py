@@ -402,6 +402,7 @@ class Slider(_Control):
             ("step", step),
         ):
             self._validate_number(name, number)
+        minimum, maximum, step = float(minimum), float(maximum), float(step)
         if maximum <= minimum or step <= 0:
             raise ValueError("maximum must exceed minimum and step must be positive")
         if not isfinite(maximum - minimum) or not isfinite((maximum - minimum) / step):
@@ -454,8 +455,10 @@ class Slider(_Control):
             return self.maximum
         ratio = (value - self.minimum) / self.step
         index = floor(ratio)
-        # One quotient ULP accounts for decimal half-steps such as .15 / .1.
-        if nextafter(ratio, float("inf")) >= index + 0.5:
+        # Compare in value space so subtracting an offset minimum does not
+        # amplify roundoff. One ULP covers a rounded decimal midpoint.
+        midpoint = self.minimum + (index + 0.5) * self.step
+        if value >= nextafter(midpoint, float("-inf")):
             index += 1
         return min(self.maximum, max(self.minimum, self.minimum + index * self.step))
 
@@ -472,13 +475,17 @@ class Slider(_Control):
                 self.on_change(value)
 
     def adjust(self, direction: int) -> None:
-        index = (self.value - self.minimum) / self.step
-        # One quotient ULP prevents a rounded lattice value skipping a step.
-        index = (
-            floor(nextafter(index, float("inf"))) + 1
-            if direction > 0
-            else ceil(nextafter(index, float("-inf"))) - 1
-        )
+        ratio = (self.value - self.minimum) / self.step
+        if direction < 0 and self.value == self.maximum:
+            # The upper endpoint may sit between lattice points. Choose the
+            # preceding point, accounting for a rounded quotient at the endpoint.
+            index = ceil(ratio) - 1
+            if self.minimum + index * self.step >= self.maximum:
+                index -= 1
+        else:
+            # Stored interior values are already snapped; recover their index
+            # rather than flooring a quotient with subtraction roundoff.
+            index = round(ratio) + (1 if direction > 0 else -1)
         self.value = min(
             self.maximum, max(self.minimum, self.minimum + index * self.step)
         )
