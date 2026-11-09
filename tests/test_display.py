@@ -1,3 +1,4 @@
+import json
 import unittest
 from types import SimpleNamespace
 from loom.display import DisplayConfig, Viewport, PyxelDisplay
@@ -14,6 +15,58 @@ def initialize_native(pyxel):
 
 
 class DisplayTests(unittest.TestCase):
+    def test_config_and_viewports_copy_mutable_size_buffers(self):
+        output, world = [32, 24], [8, 6]
+        config = DisplayConfig(output, world)
+        fitted = Viewport.fit(world, output)
+        direct = Viewport(world, output, 4, 0, 0)
+        output[:] = [40, 30]
+        world[:] = [10, 5]
+        self.assertEqual(config, DisplayConfig((32, 24), (8, 6)))
+        for viewport in (fitted, direct, config.viewport()):
+            with self.subTest(viewport=viewport):
+                self.assertEqual(viewport.source_size, (8, 6))
+                self.assertEqual(viewport.target_size, (32, 24))
+                self.assertEqual((viewport.width, viewport.height), (32, 24))
+                self.assertEqual(viewport.to_local(31, 23), (7.75, 5.75))
+                self.assertIsNone(viewport.to_local(32, 23))
+
+    def test_reusing_json_settings_requires_real_resize_and_preserves_active_picking(
+        self,
+    ):
+        settings = json.loads('{"output_size":[32,24],"world_size":[8,6]}')
+        allocations, resizes = [], []
+
+        def image(width, height):
+            result = SimpleNamespace(width=width, height=height)
+            allocations.append(result)
+            return result
+
+        engine = SimpleNamespace(Image=image, resize=lambda *size: resizes.append(size))
+        display = PyxelDisplay(engine, DisplayConfig(**settings))
+        original = display.world
+        settings["output_size"][:] = [40, 30]
+        settings["world_size"][:] = [10, 5]
+        self.assertIsNone(display.pick(35, 10))
+        self.assertEqual(display.pick(31, 23), (7, 5))
+        display.resize(DisplayConfig(**settings))
+        self.assertEqual(resizes, [(40, 30)])
+        self.assertEqual(len(allocations), 2)
+        self.assertIsNot(display.world, original)
+        self.assertEqual((display.world.width, display.world.height), (10, 5))
+        self.assertEqual(display.pick(39, 24), (9, 4))
+        self.assertIsNone(display.pick(40, 24))
+        self.assertIsNone(display.pick(39, 25))
+
+    def test_mutable_sizes_keep_existing_validation(self):
+        for size in ([0, 6], [8, -1], [8, True], [8, 6.0], [8], [8, 6, 1]):
+            with self.subTest(size=size), self.assertRaises(ValueError):
+                DisplayConfig([32, 24], size)
+            with self.subTest(size=size), self.assertRaises(ValueError):
+                Viewport.fit(size, [32, 24])
+        with self.assertRaises(ValueError):
+            DisplayConfig([4, 3], [8, 6])
+
     def test_integer_letterbox_and_edges(self):
         v = Viewport.fit((320, 180), (1000, 600))
         self.assertEqual((v.scale, v.x, v.y), (3, 20, 30))
@@ -75,6 +128,36 @@ class DisplayTests(unittest.TestCase):
 
 
 class NativeDisplayTests(unittest.TestCase):
+    def test_native_resize_from_reused_lists_keeps_pixels_and_pick_in_sync(self):
+        try:
+            import pyxel
+        except ImportError:
+            self.skipTest("optional native Pyxel test")
+        initialize_native(pyxel)
+        output, world = [24, 18], [8, 6]
+        pyxel.resize(*output)
+        display = PyxelDisplay(pyxel, DisplayConfig(output, world))
+        output[:] = [42, 30]
+        world[:] = [7, 5]
+        queued = DisplayConfig(output, world)
+        output[:] = [64, 48]
+        world[:] = [16, 12]
+        for expected in (((24, 18), (8, 6)), ((42, 30), (7, 5))):
+            if expected[0] == (42, 30):
+                display.resize(queued)
+            self.assertEqual((pyxel.width, pyxel.height), expected[0])
+            self.assertEqual((display.world.width, display.world.height), expected[1])
+            for y in range(expected[1][1]):
+                for x in range(expected[1][0]):
+                    display.world.pset(x, y, 1 + x + y * expected[1][0])
+            display.composite()
+            for y in range(expected[0][1]):
+                for x in range(expected[0][0]):
+                    point = display.pick(x, y)
+                    self.assertIsNotNone(point)
+                    self.assertEqual(pyxel.pget(x, y), display.world.pget(*point))
+            self.assertIsNone(display.pick(expected[0][0], 0))
+
     def test_integer_composite_matches_viewport_pixels(self):
         try:
             import pyxel

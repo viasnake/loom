@@ -91,6 +91,29 @@ class RuntimeTests(unittest.TestCase):
             app._update()
         self.assertEqual(coordinates, [(0, 1), (0, 1)])
 
+    def test_queued_resize_keeps_requested_sizes_after_settings_buffers_change(self):
+        app, scene, engine = self.make_app()
+        output, world = [40, 30], [10, 5]
+        requested = DisplayConfig(output, world)
+        observed, resizes = [], []
+        engine.resize = lambda *size: resizes.append(size)
+
+        def update(frame, dt):
+            observed.append(app.display.config.output_size)
+            app.request_display(requested)
+            output[:] = [80, 60]
+            world[:] = [20, 10]
+            observed.append(app.display.config.output_size)
+
+        scene.update = update
+        with patch.dict(sys.modules, {"pyxel": engine}):
+            app._update()
+        self.assertEqual(observed, [(20, 20), (20, 20)])
+        self.assertEqual(resizes, [(40, 30)])
+        self.assertEqual(app.config, DisplayConfig((40, 30), (10, 5)))
+        self.assertEqual(app.display.world, (10, 5))
+        self.assertIsNone(app._resize_request)
+
     def test_resize_failure_preserves_active_display(self):
         app, scene, engine = self.make_app()
         previous = app.display.config
