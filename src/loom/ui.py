@@ -1026,15 +1026,16 @@ class Column:
         if not self._eligible(self._capture):
             self._capture = None
         view = self._content_rect()
-        self._hover = next(
-            (
-                widget
-                for widget in self._visible
-                if view.contains(frame.x, frame.y)
-                and widget.rect.contains(frame.x, frame.y)
-            ),
-            None,
-        )
+        self._hover = None
+        if view.contains(frame.x, frame.y):
+            self._hover = next(
+                (
+                    widget
+                    for widget in self._visible
+                    if widget.rect.contains(frame.x, frame.y)
+                ),
+                None,
+            )
         # Snapshot consumption before callbacks can change modal state. Even a
         # removed/disabled button owns its gesture until release, so that release
         # cannot become a game action underneath the panel.

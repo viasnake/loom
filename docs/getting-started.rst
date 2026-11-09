@@ -158,7 +158,9 @@ Scrollable panels
 clipped to the inner area; clipped parts cannot be clicked. ``scroll_offset``
 is an integer pixel offset clamped to the content. Tab, D-pad focus navigation
 and confirm reveal the focused item. Idle updates do not undo manual scrolling.
-Items taller than the viewport align to its top.
+Items taller than the viewport align to its top. Once layout is current, pointer
+positions outside the padded content skip child hit tests. Captured slider drags
+and keyboard navigation still work outside the panel.
 
 ``InputFrame.wheel`` is the backend delta, positive upward.
 ``UIInput.from_frame(frame, scroll_step=24)`` converts it to UI pixels. Wheel

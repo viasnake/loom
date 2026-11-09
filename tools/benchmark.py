@@ -29,12 +29,17 @@ scene = Scene()
 stack = SceneStack(scene)
 panel = Column([Button(str(i), lambda: None) for i in range(20)])
 ui = UIInput()
+long_panel = Column(
+    [Button(str(i), lambda: None) for i in range(1000)], viewport_height=240
+)
+outside = UIInput(500, 500)
 results = {
     "python": platform.python_version(),
     "platform": platform.platform(),
     "direct_empty_update": bench(lambda: scene.update(frame, 1 / 60)),
     "stack_empty_update": bench(lambda: stack.update(frame, 1 / 60)),
     "retained_ui_20_buttons": bench(lambda: panel.update(ui)),
+    "scroll_ui_1000_buttons_pointer_outside": bench(lambda: long_panel.update(outside)),
 }
 tracemalloc.start()
 for _ in range(10000):
