@@ -96,6 +96,9 @@ UI
    :members:
    :undoc-members:
 
+.. autoclass:: loom.ui.ProgressBar
+   :members: value, draw
+
 .. autoclass:: loom.ui.Theme
 
 .. autoclass:: loom.ui.UIInput

@@ -200,6 +200,55 @@ class Widget:
         raise NotImplementedError
 
 
+class ProgressBar(Widget):
+    """A noninteractive horizontal fraction, for health, cooldowns or progress.
+
+    Finite values are clamped to 0..1. The game owns units, timing and labels;
+    changing value does not invalidate layout or notify callbacks. Fill rounds
+    down to whole pixels, with exact empty/full endpoints. The track uses
+    theme.button and the fill uses theme.focus (theme.disabled when disabled).
+    Override color with a resolved palette index for distinct resources.
+    """
+
+    def __init__(
+        self,
+        value: float = 0,
+        *,
+        height: int = 8,
+        color: int | None = None,
+        enabled: bool = True,
+    ):
+        if color is not None and (type(color) is not int or not 0 <= color <= 255):
+            raise ValueError("color must be a palette index between 0 and 255")
+        self.color = color
+        self.value = value
+        super().__init__(height=height, enabled=enabled)
+
+    @property
+    def value(self) -> float:
+        return self._value
+
+    @value.setter
+    def value(self, value: float) -> None:
+        try:
+            valid = type(value) in (int, float) and isfinite(value)
+        except OverflowError:
+            valid = False
+        if not valid:
+            raise ValueError("value must be a finite number")
+        self._value = min(1.0, max(0.0, float(value)))
+
+    def draw(self, canvas: Canvas, theme: Theme, **_: bool) -> None:
+        r = self.rect
+        canvas.rect(r.x, r.y, r.width, r.height, theme.button)
+        width = floor(r.width * self.value)
+        if width > 0:
+            color = theme.focus if self.color is None else self.color
+            canvas.rect(
+                r.x, r.y, width, r.height, color if self.enabled else theme.disabled
+            )
+
+
 class _TextWidget(Widget):
     minimum_height = 12
     vertical_padding = 0
