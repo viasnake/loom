@@ -8,6 +8,7 @@ from .assets import AssetStore
 from .audio import AudioMixer, Voice
 from .timing import Timeline, Timer, Tween, linear, smoothstep, ease_out_cubic
 from .controls import BindingEditor, CaptureResult, KeyCapture
+from .ui import Icon
 
 from .runtime import GameApp
 from .display import DisplayConfig, Viewport
@@ -59,6 +60,7 @@ __all__ = [
     "Palette",
     "FontCatalog",
     "Button",
+    "Icon",
     "Column",
     "Label",
     "ProgressBar",

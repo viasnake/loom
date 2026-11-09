@@ -27,6 +27,74 @@ class FontCanvas(Canvas, Protocol):
     def text(self, x: int, y: int, s: str, col: int, *, font: Any = None) -> None: ...
 
 
+class ImageCanvas(Canvas, Protocol):
+    """Optional image copying for icon buttons; PyxelCanvas implements this."""
+
+    def blt(self, x, y, image, u, v, width, height, colkey=None) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class Icon:
+    """A game-owned image region drawn at native size, without palette changes.
+
+    Keep the image alive while using the icon. Pixel edits remain visible; Loom
+    neither copies nor loads the resource. None region selects the whole image.
+    Disabled buttons retain the original image colors; the game may swap icons.
+    """
+
+    image: Any
+    region: Rect | None = None
+    colkey: int | None = None
+
+    def __post_init__(self):
+        width, height = getattr(self.image, "width", None), getattr(
+            self.image, "height", None
+        )
+        if any(type(n) is not int or n <= 0 for n in (width, height)):
+            raise TypeError("icon image must provide positive integer width and height")
+        region = self.region if self.region is not None else Rect(0, 0, width, height)
+        if not isinstance(region, Rect) or any(
+            type(n) is not int
+            for n in (region.x, region.y, region.width, region.height)
+        ):
+            raise TypeError("icon region must be an integer Rect")
+        if (
+            region.x < 0
+            or region.y < 0
+            or region.width <= 0
+            or region.height <= 0
+            or region.x + region.width > width
+            or region.y + region.height > height
+        ):
+            raise ValueError(
+                "icon region must be a nonempty rectangle inside its image"
+            )
+        if self.colkey is not None and (
+            type(self.colkey) is not int or not 0 <= self.colkey <= 255
+        ):
+            raise ValueError("colkey must be a palette index between 0 and 255")
+        object.__setattr__(self, "region", region)
+
+    def draw(self, canvas: ImageCanvas, x: int, y: int, bounds: Rect) -> None:
+        """Copy visible pixels only; bounds clips without changing canvas state."""
+        source = self.region
+        visible = Rect(x, y, source.width, source.height).intersection(bounds)
+        if visible.width <= 0 or visible.height <= 0:
+            return
+        if not callable(getattr(canvas, "blt", None)):
+            raise TypeError("icon buttons require ImageCanvas; use PyxelCanvas")
+        canvas.blt(
+            visible.x,
+            visible.y,
+            self.image,
+            source.x + visible.x - x,
+            source.y + visible.y - y,
+            visible.width,
+            visible.height,
+            self.colkey,
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class Typography:
     """Shared font selection for a panel's measurement and drawing.
@@ -55,6 +123,11 @@ class _TextCanvas:
     def text(self, x: int, y: int, s: str, col: int) -> None:
         t = self.typography
         t.fonts.draw(self.canvas, x, y, s, col, t.font)
+
+    def blt(self, x, y, image, u, v, width, height, colkey=None) -> None:
+        if not callable(getattr(self.canvas, "blt", None)):
+            raise TypeError("icon buttons require ImageCanvas; use PyxelCanvas")
+        self.canvas.blt(x, y, image, u, v, width, height, colkey)
 
 
 class ClippingCanvas(Canvas, Protocol):
@@ -367,6 +440,8 @@ class Button(_Control):
 
     Text has 4-pixel horizontal padding. Auto height leaves at least 4 pixels
     above and below; explicit undersized heights draw text from the top.
+    Optional icons use native pixels and are cropped to the button's padded
+    interior. Empty text centers the icon; otherwise it precedes the text.
     """
 
     focusable = True
@@ -380,10 +455,32 @@ class Button(_Control):
         *,
         height: int | None = None,
         enabled: bool = True,
+        icon: Icon | None = None,
     ):
         super().__init__(height=height, enabled=enabled)
         self.text = text
         self.on_click = on_click
+        self.icon = icon
+
+    @property
+    def icon(self) -> Icon | None:
+        return self._icon
+
+    @icon.setter
+    def icon(self, value: Icon | None) -> None:
+        if value is not None and not isinstance(value, Icon):
+            raise TypeError("icon must be an Icon or None")
+        if value is not getattr(self, "_icon", None):
+            self._invalidate()
+        self._icon = value
+
+    def layout_height(self, typography: Typography | None) -> int:
+        height = super().layout_height(typography)
+        if self.height is not None or self.icon is None:
+            return height
+        if not self.text:
+            height = self.minimum_height
+        return max(height, self.icon.region.height + 8)
 
     def activate(self) -> None:
         self.on_click()
@@ -413,8 +510,22 @@ class Button(_Control):
 
     def _draw_label(self, canvas: Canvas, theme: Theme) -> None:
         r = self.rect
+        x = r.x + 4
+        if self.icon is not None:
+            source = self.icon.region
+            icon_x = x if self.text else r.x + max(4, (r.width - source.width) // 2)
+            icon_y = r.y + max(4, (r.height - source.height) // 2)
+            self.icon.draw(
+                canvas,
+                icon_x,
+                icon_y,
+                Rect(r.x + 4, r.y + 4, max(0, r.width - 8), max(0, r.height - 8)),
+            )
+            x += source.width + 4
+        if not self.text:
+            return
         canvas.text(
-            r.x + 4,
+            x,
             r.y + max(0, (r.height - getattr(self, "_text_height", 6)) // 2),
             self.text,
             theme.text if self.enabled else theme.disabled,

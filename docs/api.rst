@@ -72,6 +72,12 @@ UI
 .. autoclass:: loom.ui.FontCanvas
    :members:
 
+.. autoclass:: loom.ui.ImageCanvas
+   :members:
+
+.. autoclass:: loom.ui.Icon
+   :members: draw
+
 .. autoclass:: loom.ui.Typography
    :members:
 
