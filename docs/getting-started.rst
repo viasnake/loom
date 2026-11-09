@@ -368,6 +368,10 @@ The game validates its own data. ``load()`` does not rewrite files; migrations
 run in memory. Saving backs up the previous valid file before replacement.
 Corrupt or future-version files block writes; recovery is explicit.
 
+For a custom directory, ``SaveStore("progress")`` anchors a relative path to
+the working directory at construction. Pyxel initialization or later directory
+changes do not move the save location. Construction does not create the directory.
+
 Saves are synchronous and single-writer. Avoid serializing large states in
 frame updates. Use ``kind="settings"`` for device settings, separate from
 progress intended for cloud synchronization. Atomic replacement is not a
@@ -520,9 +524,8 @@ key labels, support chords or display a built-in capture dialog.
 Resource paths
 --------------
 
-Pyxel initialization can change the working directory to the entry script's
-location. Anchor resource paths explicitly instead of relying on the launch
-working directory:
+Pyxel initialization can change the working directory. Anchor resource paths
+explicitly instead of relying on the launch working directory:
 
 .. code-block:: python
 

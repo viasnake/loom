@@ -113,6 +113,8 @@ class SaveStore:
     ``migrations[n]`` converts version n's data to version n+1. Callbacks receive
     a private copy. A failed callback cannot mutate an existing file. Save calls
     must run outside latency-sensitive update/draw callbacks for large data.
+    Relative roots are anchored when the store is created, before Pyxel or the
+    game can change the working directory. Construction creates no files.
     """
 
     def __init__(
@@ -124,7 +126,7 @@ class SaveStore:
     ):
         if type(version) is not int or version < 1:
             raise ValueError("version must be a positive integer")
-        self.root = Path(root)
+        self.root = Path(root).absolute()
         self.version = version
         self.migrations = dict(migrations or {})
         if any(
