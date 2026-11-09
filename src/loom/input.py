@@ -14,6 +14,9 @@ _EMPTY_STICKS = MappingProxyType({})
 class InputFrame:
     """One update snapshot. Wheel is the backend delta, positive upward.
 
+    Action collections and pointer coordinates are copied into immutable values;
+    callers can reuse their mutable input buffers after constructing a frame.
+
     cancelled identifies interrupted digital actions and nonneutral sticks.
     Digital cancellations also appear in released; stick names do not generate
     held/pressed/released edges. sticks contains normalized vectors, never raw axes.
@@ -32,6 +35,16 @@ class InputFrame:
     )
 
     def __post_init__(self):
+        for name in ("held", "pressed", "released", "cancelled"):
+            value = getattr(self, name)
+            if not isinstance(value, frozenset):
+                if isinstance(value, (str, bytes, bytearray, Mapping)):
+                    raise TypeError(f"{name} must be a collection of action names")
+                object.__setattr__(self, name, frozenset(value))
+        for name in ("pointer", "world_pointer"):
+            value = getattr(self, name)
+            if value is not None and not isinstance(value, tuple):
+                object.__setattr__(self, name, tuple(value))
         if not isinstance(self.sticks, Mapping):
             raise TypeError("sticks must be a mapping")
         if not self.sticks:
