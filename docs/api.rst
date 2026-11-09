@@ -179,3 +179,12 @@ Logical input repetition
 
 .. autoclass:: loom.CameraView
    :members: apply
+
+Sprite frame playback
+---------------------
+
+.. autoclass:: loom.SpriteClip
+   :members: frames, fps, duration
+
+.. autoclass:: loom.SpritePlayer
+   :members: clip, loop, frame, index, finished, update, restart
