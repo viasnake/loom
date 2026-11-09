@@ -1,6 +1,7 @@
 import unittest
+from unittest.mock import patch
 
-from loom.ui import Button, Column, Label, Rect, Theme, Typography, UIInput
+from loom.ui import Button, Column, Label, Rect, Slider, Theme, Typography, UIInput
 from loom.input import InputFrame
 from loom.text import FontCatalog
 
@@ -26,6 +27,79 @@ class UITests(unittest.TestCase):
 
     def point(self, widget, **kwargs):
         return UIInput(widget.rect.x + 1, widget.rect.y + 1, **kwargs)
+
+    def test_outside_content_hover_work_does_not_grow_with_children(self):
+        # Count geometry work rather than relying on machine-dependent timings.
+        contains = Rect.contains
+        for count in (1, 200):
+            for viewport_height in (None, 60):
+                with self.subTest(count=count, viewport_height=viewport_height):
+                    clicks = []
+                    buttons = [
+                        Button(str(i), lambda: clicks.append(1)) for i in range(count)
+                    ]
+                    panel = Column(
+                        buttons, x=10, y=10, width=100, viewport_height=viewport_height
+                    )
+                    panel.layout()
+                    for point in (
+                        (None, None),
+                        (0, 0),
+                        (11, 11),
+                        (106, 15),
+                        (15, panel.rect.y + panel.rect.height - 4),
+                    ):
+                        # Moving out must clear a prior hover, without scanning
+                        # every child even for padding or clipped content.
+                        panel.update(UIInput(15, 15))
+                        self.assertIs(panel._hover, buttons[0])
+                        checks = []
+
+                        def checked(rect, x, y):
+                            checks.append(rect)
+                            return contains(rect, x, y)
+
+                        with patch.object(Rect, "contains", checked):
+                            result = panel.update(
+                                UIInput(
+                                    *point, pointer_pressed=True, pointer_released=True
+                                )
+                            )
+                        self.assertLessEqual(len(checks), 2)
+                        self.assertIsNone(panel._hover)
+                        self.assertEqual(
+                            result.pointer_consumed, panel.rect.contains(*point)
+                        )
+                    self.assertEqual(clicks, [])
+
+    def test_outside_hover_fast_path_preserves_slider_capture_and_keyboard(self):
+        changes = []
+        slider = Slider("Volume", value=0.5, on_change=changes.append)
+        panel = Column(
+            [slider] + [Label(str(i)) for i in range(200)],
+            x=10,
+            y=10,
+            width=100,
+            viewport_height=60,
+        )
+        panel.layout()
+        panel.update(UIInput(59, 20, pointer_pressed=True))
+        self.assertEqual(changes, [])
+        # Capture still clamps a drag after the pointer leaves the content.
+        result = panel.update(UIInput(500, 500))
+        self.assertTrue(result.pointer_consumed)
+        self.assertEqual(slider.value, 1)
+        self.assertIsNone(panel._hover)
+        result = panel.update(UIInput(-50, -50, pointer_released=True))
+        self.assertTrue(result.pointer_consumed)
+        self.assertEqual(slider.value, 0)
+        result = panel.update(UIInput(500, 500))
+        self.assertFalse(result.pointer_consumed)
+        self.assertEqual(slider.value, 0)
+        # Keyboard focus remains usable with no pointer over the panel.
+        result = panel.update(UIInput(None, None, increment=True))
+        self.assertTrue(result.keyboard_consumed)
+        self.assertEqual(changes, [1, 0, 0.1])
 
     def test_rect_half_open_bounds(self):
         rect = Rect(0, 0, 10, 10)
