@@ -1,3 +1,4 @@
+from contextlib import chdir
 import json
 import os
 from pathlib import Path
@@ -34,6 +35,22 @@ class StorageTests(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             store.load()
         self.assertFalse(store.root.exists())
+
+    def test_relative_root_stays_anchored_after_working_directory_changes(self):
+        elsewhere = self.root / "elsewhere"
+        elsewhere.mkdir()
+        with chdir(self.root):
+            store = SaveStore("progress")
+            self.assertFalse((self.root / "progress").exists())
+            store.save({"score": 1})
+            with chdir(elsewhere):
+                self.assertEqual(store.load(), {"score": 1})
+                self.assertEqual(store.path(), self.root / "progress/main.json")
+                store.save({"score": 2})
+                store.path().write_bytes(b"broken")
+                self.assertEqual(store.recover(), {"score": 1})
+                self.assertEqual(store.load(), {"score": 1})
+                self.assertFalse((elsewhere / "progress").exists())
 
     def test_migration_is_in_memory_and_save_retains_original(self):
         self.store.save({"points": 7})
