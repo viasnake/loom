@@ -3,6 +3,16 @@ from types import SimpleNamespace
 from loom.display import DisplayConfig, Viewport, PyxelDisplay
 
 
+_native_initialized = False
+
+
+def initialize_native(pyxel):
+    global _native_initialized
+    if not _native_initialized:
+        pyxel.init(48, 48, headless=True, capture_sec=0)
+        _native_initialized = True
+
+
 class DisplayTests(unittest.TestCase):
     def test_integer_letterbox_and_edges(self):
         v = Viewport.fit((320, 180), (1000, 600))
@@ -70,7 +80,7 @@ class NativeDisplayTests(unittest.TestCase):
             import pyxel
         except ImportError:
             self.skipTest("optional native Pyxel test")
-        pyxel.init(48, 48, headless=True, capture_sec=0)
+        initialize_native(pyxel)
         for size in (1, 2, 3, 4, 5):
             for scale in (1, 2, 3, 4):
                 with self.subTest(size=size, scale=scale):
@@ -86,3 +96,119 @@ class NativeDisplayTests(unittest.TestCase):
                         for x in range(output):
                             expected = 2 if viewport.to_local(x, y) is not None else 0
                             self.assertEqual(pyxel.pget(x, y), expected)
+
+
+class RasterPickingTests(unittest.TestCase):
+    def engine(self):
+        return SimpleNamespace(
+            Image=lambda w, h: object(),
+            resize=lambda *args: None,
+            cls=lambda *args: None,
+            blt=lambda *args, **kwargs: None,
+        )
+
+    def test_fractional_pixel_mapping_and_outside_points(self):
+        display = PyxelDisplay(self.engine(), DisplayConfig((7, 7), (5, 3), "fit"))
+        self.assertIsNone(display.viewport.to_local(1, 1))
+        self.assertEqual(display.pick(1, 1), (1, 0))
+        self.assertEqual(
+            [display.pick(x, 1)[0] for x in range(7)], [0, 1, 1, 2, 3, 4, 4]
+        )
+        self.assertEqual(display.pick(1.9, 1.9), (1, 0))
+        for point in (
+            (0, 0),
+            (-0.1, 1),
+            (7, 1),
+            (1, 7),
+            (1, float("nan")),
+            (float("inf"), 1),
+        ):
+            self.assertIsNone(display.pick(*point))
+
+    def test_resize_failure_keeps_old_pick_tables_and_composite_does_not_rebuild(self):
+        from unittest.mock import patch
+
+        engine = self.engine()
+        display = PyxelDisplay(engine, DisplayConfig((7, 7), (5, 3), "fit"))
+        original = display.config, display.world, display._pick_x, display._pick_y
+
+        def fail_resize(*args):
+            raise RuntimeError("resize")
+
+        engine.resize = fail_resize
+        with self.assertRaises(RuntimeError):
+            display.resize(DisplayConfig((9, 9), (5, 3), "fit"))
+        self.assertEqual(
+            (display.config, display.world, display._pick_x, display._pick_y), original
+        )
+        with patch(
+            "loom.display._raster_indices", side_effect=AssertionError("rebuilt")
+        ):
+            display.composite()
+            self.assertEqual(display.pick(1, 1), (1, 0))
+        self.assertEqual(len(display._pick_x) + len(display._pick_y), 14)
+        self.assertEqual(display._pick_x.typecode, "i")
+
+    def test_native_seeded_raster_color_matches_pick_in_all_modes(self):
+        import random
+
+        try:
+            import pyxel
+        except ImportError:
+            self.skipTest("optional native Pyxel test")
+        initialize_native(pyxel)
+        rng = random.Random(61)
+        cases = [(5, 3, 7, 7), (7, 4, 3, 3), (1, 1, 7, 9), (1, 5, 3, 2), (5, 1, 2, 3)]
+        cases += [
+            (
+                rng.randrange(1, 13),
+                rng.randrange(1, 13),
+                rng.randrange(1, 25),
+                rng.randrange(1, 25),
+            )
+            for _ in range(200)
+        ]
+        for w, h, tw, th in cases:
+            for mode in ("fit", "integer"):
+                if mode == "integer" and (w > tw or h > th):
+                    continue
+                with self.subTest(size=(w, h, tw, th), mode=mode):
+                    pyxel.resize(tw, th)
+                    display = PyxelDisplay(pyxel, DisplayConfig((tw, th), (w, h), mode))
+                    for y in range(h):
+                        for x in range(w):
+                            display.world.pset(x, y, 1 + x + y * w)
+                    display.composite()
+                    for y in range(th):
+                        for x in range(tw):
+                            point = display.pick(x, y)
+                            expected = (
+                                0 if point is None else 1 + point[0] + point[1] * w
+                            )
+                            self.assertEqual(pyxel.pget(x, y), expected, (x, y, point))
+        # Longer scanlines exercise accumulated float32 rounding, not just centers.
+        for w, h, tw, th in (
+            (321, 181, 970, 620),
+            (320, 180, 777, 513),
+            (639, 359, 321, 181),
+        ):
+            pyxel.resize(tw, th)
+            display = PyxelDisplay(pyxel, DisplayConfig((tw, th), (w, h), "fit"))
+            for x in range(w):
+                display.world.rect(x, 0, 1, h, 1 + x % 255)
+            display.composite()
+            for y in (0, th // 4, th // 2, th - 1):
+                for x in range(tw):
+                    point = display.pick(x, y)
+                    self.assertEqual(
+                        pyxel.pget(x, y), 0 if point is None else 1 + point[0] % 255
+                    )
+            for y in range(h):
+                display.world.rect(0, y, w, 1, 1 + y % 255)
+            display.composite()
+            for y in range(th):
+                for x in (0, tw // 2, tw - 1):
+                    point = display.pick(x, y)
+                    self.assertEqual(
+                        pyxel.pget(x, y), 0 if point is None else 1 + point[1] % 255
+                    )

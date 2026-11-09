@@ -50,7 +50,7 @@ Display
    :undoc-members:
 
 .. autoclass:: loom.display.PyxelDisplay
-   :members: resize, composite
+   :members: resize, composite, pick
 
 UI
 --

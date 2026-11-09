@@ -35,13 +35,18 @@ A screen
 
 The world renders at 320×180; text draws directly into the 960×540 output.
 These are render pixels, not physical monitor pixels. ``frame.pointer`` uses
-output coordinates; ``frame.world_pointer`` uses world coordinates or ``None``
-in the surrounding margins. Do not apply OS DPI conversion a second time.
+output coordinates; ``frame.world_pointer`` identifies the rendered source pixel
+in the world surface, or ``None`` in margins. It is discrete in both fit and
+integer scaling; use ``Viewport.to_local`` for continuous geometry. Do not apply
+OS DPI conversion a second time.
 
 Use ``scenes.push()``, ``pop()`` and ``replace()`` for screen transitions.
 Only the top screen receives input. Changes apply after update, not during
 draw. Overlays can keep lower screens visible and pause their updates.
 Call ``scenes.quit()`` rather than ``pyxel.quit()`` so exit hooks run first.
+SceneStack initialization interruptions clean the partial scene; ``close()``
+attempts every exit once even on KeyboardInterrupt/SystemExit, then raises grouped
+cleanup failures.
 
 UI and resources
 ----------------
@@ -571,6 +576,25 @@ fresh target machines before release, including display/audio drivers, physical
 controllers, permissions and platform-specific save paths. The probe uses a
 headless window and an explicit temporary save directory; it does not verify
 Steamworks, Steam Cloud, Steam Deck, signing or installers.
+
+
+Rendered-pixel picking
+----------------------
+
+``Viewport.to_local`` / ``to_output`` remain continuous geometric transforms.
+For interaction with actual displayed pixels, use ``display.pick(x, y)`` instead:
+Pyxel's fractional-scale rasterization rounds and accumulates float32 samples,
+so a geometric letterbox edge need not coincide with a painted pixel edge.
+``GameApp`` now supplies this discrete source-pixel pair in
+``InputFrame.world_pointer`` for both integer and fit scaling. This replaces
+fractional surface coordinates; use the viewport explicitly for continuous
+geometry. Camera conversion still follows surface picking as a separate step.
+
+Picking returns ``None`` outside the output or painted world coverage. Fractional
+output coordinates select their containing pixel. The pinned Pyxel 3.0 sampling
+model uses two compact integer arrays built only at resize, O(output width +
+height) work/storage, with O(1) lookup and no per-frame scan. It assumes normal
+compositing state without external screen camera, clipping or dithering changes.
 
 
 Opt-in UI key repeat

@@ -1,8 +1,74 @@
 """Logical render surfaces and coordinate conversion, not OS window management."""
 
+from array import array
 from dataclasses import dataclass
-from math import floor, isfinite
+from math import ceil, floor, isfinite
+from struct import Struct
 from typing import Any
+
+
+_F32 = Struct("f")
+
+
+def _f32(value: float) -> float:
+    return _F32.unpack(_F32.pack(value))[0]
+
+
+def _round_pixel(value: float) -> int:
+    return floor(value + 0.5) if value >= 0 else ceil(value - 0.5)
+
+
+def _copy_axis(source: int, position: float, scale: float) -> tuple[int, float]:
+    # Even copies preserve odd source edges at even integer scales.
+    size = source + source % 2
+    return size, position + size * (scale - 1) / 2
+
+
+def _raster_axis(
+    source: int, target: int, position: float, scale: float, *, stepped: bool
+) -> array:
+    """Pinned Pyxel 3.0 canvas.rs TransformProjection/blit_with_transform.
+
+    https://github.com/kitao/pyxel/blob/v3.0.0/crates/pyxel-core/src/canvas.rs
+
+    Native x sampling accumulates float32 steps; y is recomputed for each row.
+    A direct affine formula is not equivalent at pixel rounding boundaries.
+    Build once on resize, not during drawing/picking. -1 denotes no source pixel.
+    """
+    indices = array("i", [-1]) * target
+    copy_size, blit_position = _copy_axis(source, position, scale)
+    half = _f32((copy_size - 1) / 2)
+    native_scale = _f32(scale)
+    destination = _round_pixel(_f32(blit_position))
+    if native_scale == 1:
+        for pixel in range(max(0, destination), min(target, destination + source)):
+            indices[pixel] = pixel - destination
+        return indices
+    if native_scale < 2**-23:
+        return indices  # Native transform rejects scales below float32 epsilon.
+    center = _f32(destination + half)
+    bound = _f32(_f32(half + 1) * native_scale)
+    first = max(0, _round_pixel(_f32(center - bound)))
+    last = min(target - 1, _round_pixel(_f32(center + bound)))
+    step = _f32(1 / native_scale)
+    value = _f32(half + _f32(_f32(first - center) * step))
+    for pixel in range(first, last + 1):
+        if not stepped:
+            value = _f32(half + _f32(_f32(pixel - center) * step))
+        index = _round_pixel(value)
+        if 0 <= index < source:
+            indices[pixel] = index
+        value = _f32(value + step)
+    return indices
+
+
+def _raster_indices(viewport):
+    w, h = viewport.source_size
+    tw, th = viewport.target_size
+    return (
+        _raster_axis(w, tw, viewport.x, viewport.scale, stepped=True),
+        _raster_axis(h, th, viewport.y, viewport.scale, stepped=False),
+    )
 
 
 def _size(value: tuple[int, int]) -> None:
@@ -97,16 +163,38 @@ class PyxelDisplay:
         self.config = config
         self.viewport = config.viewport()
         self.world = pyxel.Image(*config.world_size)
+        self._pick_x, self._pick_y = _raster_indices(self.viewport)
 
     def resize(self, config: DisplayConfig) -> None:
         """Apply between frames. Unchanged world buffers are reused."""
         viewport = config.viewport()
+        pick_x, pick_y = _raster_indices(viewport)
         world = self.world
         if config.world_size != self.config.world_size:
             world = self.pyxel.Image(*config.world_size)
         if config.output_size != self.config.output_size:
             self.pyxel.resize(*config.output_size)
         self.config, self.viewport, self.world = config, viewport, world
+        self._pick_x, self._pick_y = pick_x, pick_y
+
+    def pick(self, x: float, y: float) -> tuple[int, int] | None:
+        """Pick the source pixel actually displayed at an output pixel.
+
+        Fractional output coordinates select their containing pixel (floor).
+        Nonfinite/outside-output/letterbox points return None. This discrete
+        Pyxel 3.0 raster mapping differs from Viewport's continuous geometry.
+        Compact axis tables cost O(output width + height) at resize; lookup is
+        O(1). Assumes normal composite state: no external camera/clip/dithering.
+        """
+        if not (isfinite(x) and isfinite(y)):
+            return None
+        width, height = self.config.output_size
+        if not (0 <= x < width and 0 <= y < height):
+            return None
+        source_x, source_y = self._pick_x[floor(x)], self._pick_y[floor(y)]
+        if source_x < 0 or source_y < 0:
+            return None
+        return source_x, source_y
 
     def composite(self, clear_color: int = 0) -> None:
         self.pyxel.cls(clear_color)
@@ -115,9 +203,8 @@ class PyxelDisplay:
         # Pyxel 3 scales around the copy rectangle's centre. An odd-sized copy
         # loses an edge pixel at even integer scales. An even copy rectangle
         # avoids that rounding; Pyxel clips its excess to the actual Image.
-        copy_width, copy_height = w + w % 2, h + h % 2
-        x = viewport.x + copy_width * (viewport.scale - 1) / 2
-        y = viewport.y + copy_height * (viewport.scale - 1) / 2
+        copy_width, x = _copy_axis(w, viewport.x, viewport.scale)
+        copy_height, y = _copy_axis(h, viewport.y, viewport.scale)
         self.pyxel.blt(
             x, y, self.world, 0, 0, copy_width, copy_height, scale=viewport.scale
         )
