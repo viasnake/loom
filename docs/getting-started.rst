@@ -40,6 +40,12 @@ in the world surface, or ``None`` in margins. It is discrete in both fit and
 integer scaling; use ``Viewport.to_local`` for continuous geometry. Do not apply
 OS DPI conversion a second time.
 
+``DisplayConfig`` and ``Viewport`` copy size sequences into immutable tuples.
+Lists loaded from JSON settings can be reused without changing an active or
+queued display configuration. To apply edited sizes, construct a new
+``DisplayConfig`` and pass it to ``app.request_display()``; changes still take
+effect after the current update.
+
 Use ``scenes.push()``, ``pop()`` and ``replace()`` for screen transitions.
 Only the top screen receives input. Changes apply after update, not during
 draw. Overlays can keep lower screens visible and pause their updates.

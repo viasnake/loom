@@ -78,13 +78,20 @@ def _size(value: tuple[int, int]) -> None:
 
 @dataclass(frozen=True, slots=True)
 class Viewport:
-    """Aspect-preserving rectangle. Coordinates are Pyxel screen pixels, not DPI pixels."""
+    """Aspect-preserving rectangle with copied, immutable size tuples.
+
+    Coordinates are Pyxel screen pixels, not DPI pixels.
+    """
 
     source_size: tuple[int, int]
     target_size: tuple[int, int]
     scale: float
     x: float
     y: float
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "source_size", tuple(self.source_size))
+        object.__setattr__(self, "target_size", tuple(self.target_size))
 
     @classmethod
     def fit(
@@ -135,11 +142,15 @@ class Viewport:
 
 @dataclass(frozen=True, slots=True)
 class DisplayConfig:
+    """Render settings; size sequences are copied into immutable tuples."""
+
     output_size: tuple[int, int] = (960, 540)
     world_size: tuple[int, int] = (320, 180)
     scale: str = "integer"
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "output_size", tuple(self.output_size))
+        object.__setattr__(self, "world_size", tuple(self.world_size))
         if self.scale not in ("integer", "fit"):
             raise ValueError("scale must be 'integer' or 'fit'")
         self.viewport()
