@@ -1,6 +1,6 @@
 """The optional Pyxel boundary. Pure game rules need not import Pyxel."""
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 
 from .app import Scene, SceneStack
 from .input import ActionMap
@@ -112,20 +112,34 @@ class GameApp:
         )
         self.scenes = SceneStack(self.initial_scene, self.request_quit)
         try:
-            pyxel.run(self._update, self._draw)
+            pyxel.run(
+                self._guard_callback(self._update), self._guard_callback(self._draw)
+            )
         except BaseException as run_error:
-            try:
-                self.scenes.close()
-            except BaseException as cleanup_error:
-                # Keep the gameplay failure visible alongside cleanup failures.
-                # BaseExceptionGroup also preserves interrupts/SystemExit.
-                raise BaseExceptionGroup(
-                    "Application execution and cleanup failed",
-                    [run_error, cleanup_error],
-                ) from None
+            self._close_after_failure(run_error)
             raise
         else:
             self.scenes.close()
+
+    def _close_after_failure(self, error: BaseException) -> None:
+        try:
+            self.scenes.close()
+        except BaseException as cleanup_error:
+            raise BaseExceptionGroup(
+                "Application execution and cleanup failed", [error, cleanup_error]
+            ) from None
+
+    def _guard_callback(self, callback: Callable[[], None]) -> Callable[[], None]:
+        def guarded() -> None:
+            try:
+                callback()
+            except BaseException as error:
+                # Native Pyxel can terminate instead of returning callback errors
+                # to run(). Release scene resources before crossing that boundary.
+                self._close_after_failure(error)
+                raise
+
+        return guarded
 
     def _update(self) -> None:
         import pyxel

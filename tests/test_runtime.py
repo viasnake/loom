@@ -164,6 +164,26 @@ class RuntimeConfigurationTests(unittest.TestCase):
 
 
 class RuntimeFailureTests(unittest.TestCase):
+    def test_guard_preserves_interrupt_identity_and_traceback_after_cleanup(self):
+        for failure in (KeyboardInterrupt("interrupted"), SystemExit(7)):
+            with self.subTest(failure=type(failure).__name__):
+                app, scene, engine = RuntimeTests().make_app()
+
+                def interrupted():
+                    raise failure
+
+                try:
+                    app._guard_callback(interrupted)()
+                except BaseException as error:
+                    self.assertIs(error, failure)
+                    self.assertTrue(scene.closed)
+                    traceback = error.__traceback__
+                    while traceback.tb_next is not None:
+                        traceback = traceback.tb_next
+                    self.assertEqual(traceback.tb_frame.f_code.co_name, "interrupted")
+                else:
+                    self.fail("The callback interruption was swallowed")
+
     def test_callback_and_cleanup_failures_are_both_preserved(self):
         for failing_hook in ("update", "draw"):
             with self.subTest(failing_hook=failing_hook):

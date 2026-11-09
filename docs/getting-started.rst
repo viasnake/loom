@@ -52,7 +52,10 @@ draw. Overlays can keep lower screens visible and pause their updates.
 Call ``scenes.quit()`` rather than ``pyxel.quit()`` so exit hooks run first.
 SceneStack initialization interruptions clean the partial scene; ``close()``
 attempts every exit once even on KeyboardInterrupt/SystemExit, then raises grouped
-cleanup failures.
+cleanup failures. ``GameApp`` also closes scenes inside failing update/draw
+callbacks, before native Pyxel can terminate the process. The original error
+remains visible; if cleanup also fails, both errors are grouped. This does not
+recover the game loop or guarantee cleanup after an external process kill.
 
 UI and resources
 ----------------
