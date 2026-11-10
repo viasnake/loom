@@ -197,7 +197,7 @@ Sprite frame playback
 ---------------------
 
 .. autoclass:: loom.SpriteClip
-   :members: frames, fps, duration
+   :members: frames, fps, duration, from_grid
 
 .. autoclass:: loom.SpritePlayer
    :members: clip, loop, frame, index, finished, update, restart
