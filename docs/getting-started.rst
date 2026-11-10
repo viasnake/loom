@@ -111,6 +111,20 @@ not in the UI. It converts edge events, so holding a button does not repeatedly
 activate it.
 
 Fonts are not bundled. Use a font whose license permits your intended use.
+For frequently updated HUD counters, give an unwrapped label a fixed height:
+
+.. code-block:: python
+
+   oxygen_text = Label("OXYGEN 100%", height=12)
+   # In the scene update, after changing the gameplay value:
+   oxygen_text.text = f"OXYGEN {oxygen_percent:3d}%"
+
+Changing this label's text redraws it without rebuilding the panel layout.
+Automatic-height labels still reflow, and wrapped labels still refresh their
+measured lines even with a fixed height. Label subclasses retain text-driven
+layout invalidation for custom measurement. Explicit heights do not clip text:
+reserve enough room for any newlines or use a clipped panel viewport.
+
 Text layout does not provide IME, shaping or Japanese kinsoku rules.
 
 Wrapped descriptions and dialogue
@@ -128,8 +142,8 @@ Use ``Label(wrap=True)`` for plain paragraphs constrained to the panel width:
 Wrapping uses ``Column.width - 2 * padding`` and the panel's typography. Without
 ``Typography`` it uses the built-in 4-pixel advance and 6-pixel line box; no
 font-aware canvas is required. Automatic height grows with the wrapped lines.
-Changing text, ``wrap``, panel width/padding or font registration invalidates the
-layout. Idle updates and draws reuse the measured lines, including in scrollable
+For wrapped labels, changing text, ``wrap``, panel width/padding or font
+registration invalidates the layout. Idle updates and draws reuse the measured lines, including in scrollable
 panels. Custom widgets can override ``measure_height(width, typography)`` for
 width-aware sizing; its default delegates to the existing ``layout_height`` hook.
 
