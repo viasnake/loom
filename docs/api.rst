@@ -90,6 +90,10 @@ UI
    :members:
    :undoc-members:
 
+.. autoclass:: loom.ui.Choice
+   :members:
+   :inherited-members:
+
 .. autoclass:: loom.ui.Toggle
    :members:
    :undoc-members:
