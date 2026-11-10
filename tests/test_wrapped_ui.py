@@ -28,6 +28,47 @@ class WrappedLabelTests(unittest.TestCase):
         panel.draw(canvas)
         return canvas
 
+    def test_punctuation_changes_reflow_following_widget_and_cache(self):
+        from types import SimpleNamespace
+
+        fonts = FontCatalog()
+        fonts.register(
+            "body", SimpleNamespace(text_width=lambda s: len(s) * 4), line_height=8
+        )
+        label = Label("あいう、えお", wrap=True)
+        following = Button("OK", lambda: None)
+        panel = Column(
+            [label, following],
+            width=20,
+            padding=4,
+            gap=2,
+            typography=Typography(fonts, "body"),
+        )
+        self.draw(panel)
+        self.assertEqual((label.rect.height, following.rect.y), (16, 22))
+        label.japanese_punctuation = True
+        self.draw(panel)
+        self.assertEqual((label.rect.height, following.rect.y), (24, 30))
+        self.assertEqual(label._lines, ("あい", "う、え", "お"))
+        label.japanese_punctuation = True
+        for _ in range(5):
+            self.draw(panel)
+        self.assertEqual(panel.layout_count, 2)
+        panel.configure(width=24)
+        self.draw(panel)
+        self.assertEqual((label.rect.height, following.rect.y), (16, 22))
+        fonts.register(
+            "body", SimpleNamespace(text_width=lambda s: len(s) * 2), line_height=10
+        )
+        self.draw(panel)
+        self.assertEqual((label.rect.height, following.rect.y), (12, 18))
+        label.wrap = False
+        self.assertEqual(
+            [t[0][2] for t in self.draw(panel).texts], ["あいう、えお", "OK"]
+        )
+        with self.assertRaises(TypeError):
+            label.japanese_punctuation = 1
+
     def test_default_label_preserves_text_without_wrapping(self):
         label = Label("one two three")
         panel = Column([label], width=24)

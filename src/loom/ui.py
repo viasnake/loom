@@ -353,7 +353,8 @@ class Label(_TextWidget):
     """Text with automatic height (minimum 12) and optional width-based wrapping.
 
     wrap=True uses FontCatalog's greedy whitespace/code-point wrapping, not rich
-    text, grapheme shaping or Japanese kinsoku. Explicit newlines are retained;
+    text or grapheme shaping. japanese_punctuation opts into a small punctuation
+    policy, not full Japanese kinsoku. Explicit newlines are retained;
     other whitespace is collapsed. A single glyph wider than available width
     still overflows. Explicit height is respected; widgets do not clip themselves.
     """
@@ -365,12 +366,15 @@ class Label(_TextWidget):
         height: int | None = None,
         color: int | None = None,
         wrap: bool = False,
+        japanese_punctuation: bool = False,
     ):
         super().__init__(height=height)
         self.text = text
         self.color = color
         self._wrap = False
         self.wrap = wrap
+        self._japanese_punctuation = False
+        self.japanese_punctuation = japanese_punctuation
         self._default_fonts: FontCatalog | None = None
         self._lines: tuple[str, ...] | None = None
         self._line_height = 6
@@ -387,6 +391,18 @@ class Label(_TextWidget):
             self._wrap = value
             self._invalidate()
 
+    @property
+    def japanese_punctuation(self) -> bool:
+        return self._japanese_punctuation
+
+    @japanese_punctuation.setter
+    def japanese_punctuation(self, value: bool) -> None:
+        if type(value) is not bool:
+            raise TypeError("japanese_punctuation must be a bool")
+        if value != self._japanese_punctuation:
+            self._japanese_punctuation = value
+            self._invalidate()
+
     def measure_height(self, width: int, typography: Typography | None) -> int:
         if not self.wrap:
             self._lines = None
@@ -399,7 +415,10 @@ class Label(_TextWidget):
             fonts, font = self._default_fonts, "default"
         else:
             fonts, font = typography.fonts, typography.font
-        self._lines = fonts.wrap(self.text, width, font)
+        if self.japanese_punctuation:
+            self._lines = fonts.wrap(self.text, width, font, japanese_punctuation=True)
+        else:
+            self._lines = fonts.wrap(self.text, width, font)
         self._line_height = fonts.measure("", font)[1]
         self._text_height = len(self._lines) * self._line_height
         return (
