@@ -424,6 +424,7 @@ class _Control(_TextWidget):
 
     focusable = True
     draggable = False
+    adjustable = False
 
     def activate(self) -> None:
         pass
@@ -528,6 +529,104 @@ class Button(_Control):
             x,
             r.y + max(0, (r.height - getattr(self, "_text_height", 6)) // 2),
             self.text,
+            theme.text if self.enabled else theme.disabled,
+        )
+
+
+class Choice(Button):
+    """A compact cyclic choice, using labels rather than game-owned values.
+
+    Click release, confirm or increment selects the next option; decrement
+    selects the previous one. Both ends wrap. Options are copied to an immutable,
+    nonempty tuple of strings. Map index to game values in the callback.
+
+    Construction is silent. Assigning index notifies on_change once only when
+    it changes, after updating the displayed selection and invalidating layout.
+    text is the editable heading; option is the selected label (read-only).
+    Like Button, text is not clipped or wrapped: provide enough panel width.
+    """
+
+    adjustable = True
+
+    def __init__(
+        self,
+        text: str,
+        options: Iterable[str],
+        index: int = 0,
+        on_change: Callable[[int], None] | None = None,
+        *,
+        height: int | None = None,
+        enabled: bool = True,
+    ):
+        if isinstance(options, str):
+            raise TypeError("options must be an iterable of strings, not a string")
+        self._options = tuple(options)
+        if not self._options:
+            raise ValueError("options must not be empty")
+        if any(not isinstance(option, str) for option in self._options):
+            raise TypeError("options must contain strings")
+        self._validate_index(index)
+        self._index = index
+        self.on_change = on_change
+        super().__init__(text, self._next, height=height, enabled=enabled)
+
+    def _validate_index(self, index: int) -> None:
+        if type(index) is not int:
+            raise TypeError("index must be an integer")
+        if not 0 <= index < len(self.options):
+            raise ValueError("index must refer to an option")
+
+    @property
+    def options(self) -> tuple[str, ...]:
+        return self._options
+
+    @property
+    def index(self) -> int:
+        return self._index
+
+    @index.setter
+    def index(self, value: int) -> None:
+        self._validate_index(value)
+        if value != self._index:
+            self._index = value
+            self._invalidate()
+            if self.on_change is not None:
+                self.on_change(value)
+
+    @property
+    def option(self) -> str:
+        return self.options[self.index]
+
+    def _next(self) -> None:
+        self.adjust(1)
+
+    def adjust(self, direction: int) -> None:
+        if direction:
+            self.index = (self.index + (1 if direction > 0 else -1)) % len(self.options)
+
+    def _display_text(self) -> str:
+        prefix = f"{self.text}: " if self.text else ""
+        return f"{prefix}< {self.option} >"
+
+    def layout_height(self, typography: Typography | None) -> int:
+        text = self._display_text()
+        self._text_height = (
+            typography.measure(text)[1]
+            if typography is not None
+            else len(text.split("\n")) * 6
+        )
+        return (
+            self.height
+            if self.height is not None
+            else max(self.minimum_height, self._text_height + 2 * self.vertical_padding)
+        )
+
+    def _draw_label(self, canvas: Canvas, theme: Theme) -> None:
+        r = self.rect
+        canvas.text(
+            r.x + 4,
+            r.y + max(0, (r.height - getattr(self, "_text_height", 6)) // 2),
+            self._display_text(),
             theme.text if self.enabled else theme.disabled,
         )
 
@@ -1076,7 +1175,9 @@ class Column:
                 if action is None and not self._focus.draggable:
                     action = self._focus.activate
                 self._capture = None
-            if (frame.decrement or frame.increment) and self._focus.draggable:
+            if (frame.decrement or frame.increment) and (
+                self._focus.draggable or self._focus.adjustable
+            ):
                 self._ensure_focus_visible()
                 keyboard_consumed = True
                 if action is None and frame.decrement != frame.increment:

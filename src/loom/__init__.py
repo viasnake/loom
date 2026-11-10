@@ -16,6 +16,7 @@ from .palette import Palette
 from .text import FontCatalog
 from .ui import (
     Button,
+    Choice,
     Column,
     Label,
     ProgressBar,
@@ -60,6 +61,7 @@ __all__ = [
     "Palette",
     "FontCatalog",
     "Button",
+    "Choice",
     "Icon",
     "Column",
     "Label",

@@ -726,3 +726,41 @@ Frames have equal duration, positive dimensions and nonnegative source origins.
 Asset loading, sheet bounds, flipping, per-frame events and animation state
 machines remain game policy. Timeline continues to handle numeric interpolation
 and delayed callbacks, separately from this discrete frame cursor.
+
+Discrete settings
+-----------------
+
+``Choice`` selects from a small fixed set without a dropdown or game-side
+button wiring. Left/right action edges (``decrement`` / ``increment``) cycle
+backward/forward. Confirm or a completed pointer click anywhere on the control
+cycles forward. Both ends wrap; a single option stays unchanged. Bind physical
+keys with ``ActionMap`` as for Slider, then route ``UIInput.from_frame(frame)``
+through your panel or ``UIRouter``. Held keys do not repeat automatically.
+
+.. code-block:: python
+
+   from loom import Choice, Column
+
+   difficulty_values = (0.5, 1.0, 1.5)
+   settings = {"enemy_speed": 1.0}
+
+   def set_difficulty(index):
+       settings["enemy_speed"] = difficulty_values[index]
+
+   difficulty = Choice("Difficulty", ("Easy", "Normal", "Hard"),
+                       index=1, on_change=set_difficulty)
+   panel = Column([difficulty], width=180)
+
+   # These edits invalidate retained layout, including multiline labels.
+   difficulty.text = "Challenge"
+   difficulty.index = 2  # Calls set_difficulty once; same-index writes are silent.
+   assert difficulty.option == "Hard"
+
+Construction does not call the callback. ``options`` is a copied, read-only tuple;
+create a new Choice if the available options change. ``index`` must be an integer
+in range, excluding bool. The callback receives the index, so game-owned values
+can be any type, including resolution presets. The control does not apply display
+changes itself. Changing an index programmatically works even when disabled,
+as with Toggle and Slider; disabled or hidden controls receive no user input.
+Choose enough panel width for the heading, option and arrows; Choice does not
+wrap or clip its own text. An explicit height overrides automatic text sizing.
