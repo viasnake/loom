@@ -731,10 +731,15 @@ a game-owned sprite sheet; Pyxel still handles drawing and source clipping.
 
    from loom import SpriteClip, SpritePlayer
 
-   walk = SpriteClip(((0, 0, 16, 16), (16, 0, 16, 16)), fps=8)
+   walk = SpriteClip.from_grid((16, 16), columns=2, count=2, fps=8)
    player = SpritePlayer(walk)  # loop=False for an attack or one-shot effect.
    player.update(dt)           # Omit this while the owning scene is paused.
    image.blt(x, y, sheet, *player.frame, colkey=0)
+
+For regular sheets, ``from_grid`` reads left to right, then down. Optional
+``origin=(x, y)`` and ``spacing=(x_gap, y_gap)`` handle margins and gaps;
+``count`` may stop partway through the last row. Use explicit rectangles for
+irregular sheets.
 
 A one-shot finishes only after the final frame's display time, then retains
 that frame. ``restart()`` returns to frame zero; create another player to switch

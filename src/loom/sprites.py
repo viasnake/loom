@@ -44,6 +44,56 @@ class SpriteClip:
         object.__setattr__(self, "frames", frames)
         object.__setattr__(self, "fps", fps)
 
+    @classmethod
+    def from_grid(
+        cls,
+        frame_size: tuple[int, int],
+        *,
+        columns: int,
+        count: int,
+        origin: tuple[int, int] = (0, 0),
+        spacing: tuple[int, int] = (0, 0),
+        fps: float = 8.0,
+    ) -> "SpriteClip":
+        """Build row-major frames from a regular sheet, without loading an image.
+
+        columns is the number of frames per row, count the total to include.
+        origin locates the first frame; spacing is the gap between frames, not
+        an outer margin. A partial final row is allowed. Sheet bounds remain
+        the caller's responsibility, as with explicitly supplied rectangles.
+        """
+        for name, value in (("columns", columns), ("count", count)):
+            if type(value) is not int or value <= 0:
+                raise ValueError(f"{name} must be a positive integer")
+        pairs = []
+        for name, value, minimum in (
+            ("frame_size", frame_size, 1),
+            ("origin", origin, 0),
+            ("spacing", spacing, 0),
+        ):
+            try:
+                pair = tuple(value)
+            except TypeError:
+                raise ValueError(
+                    f"{name} must contain two integers >= {minimum}"
+                ) from None
+            if len(pair) != 2 or any(type(n) is not int or n < minimum for n in pair):
+                raise ValueError(f"{name} must contain two integers >= {minimum}")
+            pairs.append(pair)
+        (width, height), (x, y), (gap_x, gap_y) = pairs
+        return cls(
+            tuple(
+                (
+                    x + (i % columns) * (width + gap_x),
+                    y + (i // columns) * (height + gap_y),
+                    width,
+                    height,
+                )
+                for i in range(count)
+            ),
+            fps=fps,
+        )
+
     @property
     def duration(self) -> float:
         return len(self.frames) / self.fps
