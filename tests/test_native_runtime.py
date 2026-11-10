@@ -12,6 +12,40 @@ import unittest
 
 @unittest.skipUnless(importlib.util.find_spec("pyxel"), "Pyxel is not installed")
 class NativeRuntimeTests(unittest.TestCase):
+    def test_callback_failures_close_all_scenes_before_native_exit(self):
+        fixture = Path(__file__).with_name("fixtures") / "callback_failure_contract.py"
+        environment = os.environ.copy()
+        environment["SDL_AUDIODRIVER"] = "dummy"
+        environment["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
+        for hook in ("update", "draw", "quit"):
+            for cleanup_mode in ("ok", "fail"):
+                if hook == "quit" and cleanup_mode == "ok":
+                    continue
+                with self.subTest(hook=hook, cleanup_mode=cleanup_mode):
+                    result = subprocess.run(
+                        [sys.executable, str(fixture), hook, cleanup_mode],
+                        capture_output=True,
+                        text=True,
+                        timeout=20,
+                        env=environment,
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+                    reports = [
+                        json.loads(line.removeprefix("CLEANUP:"))
+                        for line in result.stdout.splitlines()
+                        if line.startswith("CLEANUP:")
+                    ]
+                    self.assertEqual(
+                        reports,
+                        [["overlay exit", "root exit"]],
+                        result.stdout + result.stderr,
+                    )
+                    if hook != "quit":
+                        failure = "gameplay" if hook == "update" else "render"
+                        self.assertIn(f"{failure} failure marker", result.stderr)
+                    if cleanup_mode == "fail":
+                        self.assertIn("cleanup failure marker", result.stderr)
+
     def test_relative_saves_survive_native_initialization(self):
         fixture = Path(__file__).with_name("fixtures") / "save_path_contract.py"
         environment = os.environ.copy()
