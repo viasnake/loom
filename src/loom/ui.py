@@ -336,7 +336,10 @@ class _TextWidget(Widget):
             raise TypeError("text must be a string")
         if value != getattr(self, "_text", None):
             self._text = value
-            self._invalidate()
+            self._invalidate_text()
+
+    def _invalidate_text(self) -> None:
+        self._invalidate()
 
     def layout_height(self, typography: Typography | None) -> int:
         self._text_height = (
@@ -357,6 +360,9 @@ class Label(_TextWidget):
     policy, not full Japanese kinsoku. Explicit newlines are retained;
     other whitespace is collapsed. A single glyph wider than available width
     still overflows. Explicit height is respected; widgets do not clip themselves.
+    With an explicit height and no wrapping, text changes only redraw: they do
+    not invalidate the panel layout. This suits frequently updated HUD counters.
+    Subclasses retain text invalidation for custom measurement hooks.
     """
 
     def __init__(
@@ -369,15 +375,22 @@ class Label(_TextWidget):
         japanese_punctuation: bool = False,
     ):
         super().__init__(height=height)
-        self.text = text
         self.color = color
         self._wrap = False
         self.wrap = wrap
+        self.text = text
         self._japanese_punctuation = False
         self.japanese_punctuation = japanese_punctuation
         self._default_fonts: FontCatalog | None = None
         self._lines: tuple[str, ...] | None = None
         self._line_height = 6
+
+    def _invalidate_text(self) -> None:
+        # Unwrapped labels draw their current text directly. A fixed height
+        # keeps sibling bounds unchanged, even when the number of lines changes.
+        # Subclasses may measure text differently, so preserve their hooks.
+        if type(self) is not Label or self.height is None or self.wrap:
+            self._invalidate()
 
     @property
     def wrap(self) -> bool:
