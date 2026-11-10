@@ -132,3 +132,96 @@ class WrappingWorkTests(unittest.TestCase):
         self.assertEqual(catalog.wrap(text, 40000), ("a" * 10000,) * 10)
         self.assertEqual(catalog.cache_size, 1)
         self.assertEqual(catalog.wrap("a " * 50000, 400000), ("a " * 49999 + "a",))
+
+
+class JapanesePunctuationTests(unittest.TestCase):
+    def test_opt_in_avoids_punctuation_and_opening_brackets(self):
+        catalog = FontCatalog()
+        self.assertEqual(catalog.wrap("あいう、えお", 12), ("あいう", "、えお"))
+        self.assertEqual(
+            catalog.wrap("あいう、えお", 12, japanese_punctuation=True),
+            ("あい", "う、え", "お"),
+        )
+        self.assertEqual(
+            catalog.wrap("あい「うえ」", 12, japanese_punctuation=True),
+            ("あい", "「う", "え」"),
+        )
+        for opening, closing in zip(
+            "([{（［｛〈《「『【〔〖〘〚",
+            ")] }）］｝〉》」』】〕〗〙〛".replace(" ", ""),
+        ):
+            self.assertEqual(
+                catalog.wrap(
+                    "あい" + opening + "うえ" + closing, 12, japanese_punctuation=True
+                ),
+                ("あい", opening + "う", "え" + closing),
+            )
+
+    def test_mixed_words_whitespace_and_explicit_lines(self):
+        catalog = FontCatalog()
+        self.assertEqual(
+            catalog.wrap(
+                " HP  10。回復します。\n\n「\n、\n", 24, japanese_punctuation=True
+            ),
+            ("HP", "10。回復し", "ます。", "", "「", "、", ""),
+        )
+        self.assertEqual(
+            catalog.wrap("one two three", 24, japanese_punctuation=True),
+            ("one", "two", "three"),
+        )
+        self.assertEqual(catalog.wrap("\t \n", 1, japanese_punctuation=True), ("", ""))
+
+    def test_impossible_boundaries_prioritize_width_and_make_progress(self):
+        catalog = FontCatalog()
+        for width in (1, 4):
+            self.assertEqual(
+                catalog.wrap("「あ」、。", width, japanese_punctuation=True),
+                ("「", "あ", "」", "、", "。"),
+            )
+        self.assertEqual(
+            catalog.wrap("「「「あ", 8, japanese_punctuation=True), ("「「", "「あ")
+        )
+
+    def test_seeded_width_and_character_preservation_including_custom_fonts(self):
+        import random
+
+        rng = random.Random(57)
+        catalog = FontCatalog(3)
+        measures = (lambda s: len(s) * 4, lambda s: len(s) * 3 if len(s) % 3 else 1)
+        catalog.register("custom", SimpleNamespace(text_width=measures[1]))
+        for _ in range(100):
+            text = "".join(rng.choice("abc日本、。！？「」() \t") for _ in range(80))
+            for font, measure in zip(("default", "custom"), measures):
+                for width in (1, 4, 8, 17, 80):
+                    lines = catalog.wrap(text, width, font, japanese_punctuation=True)
+                    self.assertEqual(
+                        "".join(lines).replace(" ", ""), "".join(text.split())
+                    )
+                    self.assertTrue(all(lines))
+                    self.assertTrue(all(line == line.strip() for line in lines))
+                    self.assertTrue(
+                        all(measure(line) <= width or len(line) == 1 for line in lines)
+                    )
+            self.assertLessEqual(catalog.cache_size, 3)
+
+    def test_policy_is_cached_separately_and_font_replacement_invalidates(self):
+        calls = []
+        catalog = FontCatalog()
+        catalog.register(
+            "body", SimpleNamespace(text_width=lambda s: calls.append(s) or len(s) * 4)
+        )
+        old = catalog.wrap("あいう、えお", 12, "body")
+        new = catalog.wrap("あいう、えお", 12, "body", japanese_punctuation=True)
+        self.assertNotEqual(old, new)
+        before = len(calls)
+        self.assertEqual(
+            catalog.wrap("あいう、えお", 12, "body", japanese_punctuation=True), new
+        )
+        self.assertEqual(len(calls), before)
+        catalog.register("body", SimpleNamespace(text_width=lambda s: len(s)))
+        self.assertEqual(
+            catalog.wrap("あいう、えお", 12, "body", japanese_punctuation=True),
+            ("あいう、えお",),
+        )
+        with self.assertRaises(TypeError):
+            catalog.wrap("a", 12, japanese_punctuation=1)

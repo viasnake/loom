@@ -8,6 +8,21 @@ from loom import Column, Label, PyxelCanvas
 
 @unittest.skipUnless(importlib.util.find_spec("pyxel"), "Pyxel is not installed")
 class NativeWrappingTests(unittest.TestCase):
+    def test_punctuation_opt_in_pixels_match_explicit_lines(self):
+        import pyxel
+
+        target, expected = pyxel.Image(40, 48), pyxel.Image(40, 48)
+        label = Label("ab(cd)", wrap=True, japanese_punctuation=True)
+        panel = Column([label], width=16, padding=2)
+        panel.draw(PyxelCanvas(target))
+        expected.rect(0, 0, 16, panel.rect.height, panel.theme.panel)
+        for row, line in enumerate(("ab", "(c", "d)")):
+            expected.text(2, 2 + row * 6, line, panel.theme.text)
+        self.assertEqual(label._lines, ("ab", "(c", "d)"))
+        for y in range(48):
+            for x in range(40):
+                self.assertEqual(target.pget(x, y), expected.pget(x, y), (x, y))
+
     def test_wrap_reflow_and_scroll_match_explicit_line_rendering(self):
         import pyxel
 

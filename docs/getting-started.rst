@@ -148,6 +148,23 @@ require quadratic measurement work. Split very large custom-font documents into
 smaller paragraphs/pages ahead of time. Other widgets, and labels with
 ``wrap=False`` (the default), retain their previous unwrapped behavior.
 
+Japanese punctuation (opt-in)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use ``Label(text, wrap=True, japanese_punctuation=True)`` or
+``fonts.wrap(text, width, "body", japanese_punctuation=True)`` with a game-owned
+Japanese font. Changing the option reflows the label and following widgets.
+The policy avoids line starts in ``、。，．！？：；)]}）］｝〉》」』】〕〗〙〛`` and
+line ends in ``([{（［｛〈《「『【〔〖〘〚``. It prefers legal whitespace breaks,
+then code-point breaks, backing up from the first overflowing prefix. Three
+cells turn ``あいう、えお`` into ``あい / う、え / お``. If no legal break fits,
+width wins: split at code points, allowing a single overwide glyph alone.
+Explicit newlines and blank lines stay; other whitespace collapses as usual.
+This is not full kinsoku: small kana, prolonged sound marks, grapheme clusters,
+shaping and hanging punctuation are unsupported. Custom fonts are measured
+exactly, but scanning stops at the first overflow, even for nonmonotonic widths.
+The option is cached separately; default wrapping and its fast path are unchanged.
+
 Scrollable panels
 -----------------
 

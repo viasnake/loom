@@ -1,7 +1,7 @@
 """Named font resources and bounded measurement/wrapping caches.
 
 Fonts are supplied by the game (e.g. pyxel.Font(path, size)); no fonts, licenses,
-IME or language-specific line-breaking rules are implicitly bundled.
+IME or full language-specific layout are implicitly bundled.
 """
 
 from collections import OrderedDict
@@ -31,6 +31,64 @@ def _wrap_fixed(text: str, width: int) -> tuple[str, ...]:
             pieces = [word[tail_start:]]
             length = len(pieces[0])
         result.append(" ".join(pieces))
+    return tuple(result)
+
+
+# Deliberately small punctuation policy, not a Unicode/JIS line-break engine.
+_NO_LINE_START = frozenset("、。，．！？：；)]}）］｝〉》」』】〕〗〙〛")
+_NO_LINE_END = frozenset("([{（［｛〈《「『【〔〖〘〚")
+
+
+def _wrap_japanese_punctuation(
+    text: str, width: int, measure: Any = None
+) -> tuple[str, ...]:
+    """Prefer whitespace, then legal punctuation boundaries, within the width.
+
+    Stop at the first overflowing prefix. If no legal boundary fits, fall back
+    to that prefix's preceding code point (or one oversized glyph).
+    """
+    result: list[str] = []
+    for paragraph in text.split("\n"):
+        paragraph = " ".join(paragraph.split())
+        start = 0
+        if not paragraph:
+            result.append("")
+        while start < len(paragraph):
+            end = start
+            legal = space = 0
+            while end < len(paragraph):
+                # Do not measure trailing separator spaces: they are discarded
+                # at a break, and custom widths need not be monotonic.
+                visible_end = end if paragraph[end] == " " else end + 1
+                measured = (
+                    (visible_end - start) * 4
+                    if measure is None
+                    else measure(paragraph[start:visible_end])
+                )
+                if measured > width:
+                    break
+                end += 1
+                if end == len(paragraph):
+                    break
+                previous = end - 1
+                if paragraph[previous] == " ":
+                    previous -= 1
+                if (
+                    paragraph[end] != " "
+                    and paragraph[previous] not in _NO_LINE_END
+                    and paragraph[end] not in _NO_LINE_START
+                ):
+                    legal = end
+                    if paragraph[end - 1] == " ":
+                        space = end
+            if end == len(paragraph):
+                cut = end
+            else:
+                cut = space or legal or max(start + 1, end)
+            result.append(paragraph[start:cut].rstrip())
+            start = cut
+            if start < len(paragraph) and paragraph[start] == " ":
+                start += 1
     return tuple(result)
 
 
@@ -95,11 +153,20 @@ class FontCatalog:
 
         return self._cached(("measure", font, text), measure_lines)
 
-    def wrap(self, text: str, width: int, font: str = "default") -> tuple[str, ...]:
+    def wrap(
+        self,
+        text: str,
+        width: int,
+        font: str = "default",
+        *,
+        japanese_punctuation: bool = False,
+    ) -> tuple[str, ...]:
         """Greedy wrapping at whitespace, splitting long words at code points.
 
         Explicit newlines and blank lines are retained; other whitespace is
-        collapsed to single spaces. Not Japanese kinsoku or
+        collapsed to single spaces. ``japanese_punctuation=True`` avoids a small,
+        documented set of punctuation boundaries when they fit. Width wins if
+        none fit; explicit newlines always win. This is not full kinsoku or
         grapheme-aware layout; choose a suitable font and perform richer shaping
         in the game when needed. A glyph wider than width occupies its own line.
 
@@ -109,12 +176,16 @@ class FontCatalog:
         measurement semantics (no additive or monotonic width assumption), so
         a long unbroken token can still require quadratic measurement work.
         """
+        if type(japanese_punctuation) is not bool:
+            raise TypeError("japanese_punctuation must be a bool")
         if type(width) is not int or width <= 0:
             raise ValueError("width must be a positive integer")
         face, _ = self._fonts[font]  # validate even for an empty string
 
         def wrap_lines() -> tuple[str, ...]:
             if face is None:
+                if japanese_punctuation:
+                    return _wrap_japanese_punctuation(text, width)
                 return _wrap_fixed(text, width)
             widths: OrderedDict[str, int] = OrderedDict()
 
@@ -129,6 +200,8 @@ class FontCatalog:
                         widths.popitem(last=False)
                 return measured
 
+            if japanese_punctuation:
+                return _wrap_japanese_punctuation(text, width, measure)
             result: list[str] = []
             for paragraph in text.split("\n"):
                 line = ""
@@ -148,7 +221,9 @@ class FontCatalog:
                 result.append(line)
             return tuple(result)
 
-        return self._cached(("wrap", font, text, width), wrap_lines)
+        return self._cached(
+            ("wrap", font, text, width, japanese_punctuation), wrap_lines
+        )
 
     def draw(
         self,
