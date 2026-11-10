@@ -67,6 +67,17 @@ class InputFrame:
         object.__setattr__(self, "sticks", MappingProxyType(snapshot))
 
     def without(self, actions: set[str]) -> "InputFrame":
+        """Filter named actions and sticks without changing coordinates or wheel.
+
+        Exact InputFrame instances reuse themselves for empty set/frozenset
+        filters. Subclasses retain the base-snapshot copy behavior.
+        """
+        if (
+            type(self) is InputFrame
+            and type(actions) in (set, frozenset)
+            and not actions
+        ):
+            return self
         return InputFrame(
             self.held - actions,
             self.pressed - actions,
